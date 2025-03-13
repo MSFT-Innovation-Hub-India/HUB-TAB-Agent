@@ -76,9 +76,6 @@ client = AzureOpenAI(
 # }
 
 
-
-    
-
 def update_dialog_stack(left: list[str], right: Optional[str]) -> list[str]:
     """Push or pop the state."""
     if right is None:
@@ -102,7 +99,7 @@ class State(TypedDict):
         ],
         update_dialog_stack,
     ]
-    engagement_type: str 
+    engagement_type: str
     prompt_template: str
 
 
@@ -148,6 +145,7 @@ class CompleteOrEscalate(BaseModel):
                 "reason": "I need to search the user's emails or calendar for more information.",
             },
         }
+
 
 input_validator_sys_prompt = """
 - **Identity and Role:**
@@ -280,7 +278,7 @@ input_Validator_Agent_prompt = ChatPromptTemplate(
 
 input_validator_tools = [set_prompt_template]
 input_validator_runnable = input_Validator_Agent_prompt | llm.bind_tools(
-  input_validator_tools + [CompleteOrEscalate]
+    input_validator_tools + [CompleteOrEscalate]
 )
 
 agenda_creator_Agent_prompt = ChatPromptTemplate(
@@ -293,7 +291,7 @@ agenda_creator_Agent_prompt = ChatPromptTemplate(
             "- You will receive the input for agenda topics creation inside the section labeled **### Topics Confirmation Message ###**."
             "- When missing information is identified, ask the user for the missing details."
             "- **Create a final Agenda** in the Markdown table format following the sample provided."
-            "- **After generating the Agenda table**, present it to the user and ask for confirmation before finalizing your work."
+            "- **After generating the Agenda table**, present it to the user and ask for confirmation before finalizing your work.",
         ),
         ("placeholder", "{messages}"),
     ]
@@ -338,7 +336,6 @@ class ToInputValidator(BaseModel):
         description="The notes from the external briefing call, with the Customer."
     )
 
-
     class Config:
         json_schema_extra = {
             "example": {
@@ -359,12 +356,11 @@ class ToAgendaCreator(BaseModel):
         description="### Topics Confirmation Message ### /n lots of text"
     )
 
-
     class Config:
         json_schema_extra = {
             "example": {
                 "request": "I want to prepare an Agenda for the Innovation Hub Session for Customer Contoso",
-                "topics_confirmation": "### Topics Confirmation Message ### /n lots of text"
+                "topics_confirmation": "### Topics Confirmation Message ### /n lots of text",
             }
         }
 
@@ -382,7 +378,7 @@ class ToDocumentGenerator(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "query": "Generate a Microsoft Office Word document (.docx) for the agenda items provided\n agenda_items: | Topic  | Topic Description                                                                                                       | \n|--------|-------------------------------------------------------------------------------------------------------------------------|\n| $Topic | Describe what ought to be covered in detail after identifying the below:\n- provide a comma separated list of detailed sub topics, or requirements or technology areas, or pain points that need to be addressed during this topic \n- List down the areas that the audience could get conversant with, or get clarity on, when this topic is delivered  |\n| $Topic | Describe what ought to be covered in detail after identifying the below:\n- provide a comma separated list of detailed sub topics, or requirements or technology areas, or pain points that need to be addressed during this topic \n- List down the areas that the audience could get conversant with, or get clarity on, when this topic is delivered  |\n| $Topic | Describe what ought to be covered in detail after identifying the below:\n- provide a comma separated list of detailed sub topics, or requirements or technology areas, or pain points that need to be addressed during this topic \n- List down the areas that the audience could get conversant with, or get clarity on, when this topic is delivered  |\n| ...    | ...",
+                "query": "| Time (IST)          | Speaker             | Topic                      | Description                                                                                           |\n|---------------------|---------------------|----------------------------|-------------------------------------------------------------------------------------------------------|\n| 10:00 AM – 10:15 AM | Moderator           | Welcome & Introductions    | Welcome Contoso attendees. Introduction to the Microsoft team.                                         |\n| 10:15 AM – 11:15 AM | Speaker1  | AI Narrative Presentation  | Present the AI narrative of Microsoft, including how AI has been infused within all products over the last two years. |",
                 "config": '{{"configurable": {"customer_name": "Ravi Kumar","thread_id": "abcd12344","asst_thread_id": "bcde56789"}}',
             },
         }
@@ -397,11 +393,11 @@ planner_agent_prompt = ChatPromptTemplate.from_messages(
             "You will receive the input for topic creation in the section labeled **### internal briefing notes ###** or **### external briefing notes ###**"
             "- Check if there is content under `### External Briefing Notes ###`. /n - If not, check for `### Internal Briefing Notes ###`/n.- If there is no content under `### Internal Briefing Notes ###` either, prompt the user to provide the missing notes for either External or Internal Briefing Notes. Do not proceed to the **Extraction Requirements:** stage until then./n- If content is missing under `### Internal Briefing Notes ###` (after checking External), do not prompt for any additional information and proceed to the **Extraction Requirements:** stage."
             "Either of these notes are mandatory for you to process the request. If neither of them is provided, then you will ask the user to provide them."
-            "Use the InputValidator Agent to validate the input in the notes provided and extract the metadata and goals." 
+            "Use the InputValidator Agent to validate the input in the notes provided and extract the metadata and goals."
             "Then, use the AgendaCreator Agent to create the agenda topics, complete with the Session timing slots,Speaker Names, Topic, Topic Desciptions."
             "Then use the DocumentGenerator Agent to generate the Word document with these details in it"
             "You are not to make these types of changes yourself"
-            "The user is not aware of the different specialized assistants, so do not mention them; just quietly delegate through function calls. "
+            "The user is not aware of the different specialized assistants, so do not mention them; just quietly delegate through function calls. ",
         ),
         ("placeholder", "{messages}"),
     ]
@@ -430,7 +426,6 @@ def create_entry_node(assistant_name: str, new_dialog_state: str) -> Callable:
         }
 
     return entry_node
-
 
 
 def handle_tool_error(state) -> dict:
@@ -475,8 +470,10 @@ builder = StateGraph(State)
 def user_info(state: State):
     return {"user_info": "User info"}
 
+
 builder.add_node("fetch_user_info", user_info)
 builder.add_edge(START, "fetch_user_info")
+
 
 # In graph_build.py, add this function:
 def update_prompt_template_node(state: State):
@@ -518,6 +515,7 @@ builder.add_node(
 builder.add_node("input_validation", Assistant(input_validator_runnable))
 builder.add_edge("enter_input_validation", "input_validation")
 
+
 def route_input_validation(state: State):
     route = tools_condition(state)
     if route == END:
@@ -547,7 +545,7 @@ builder.add_edge("input_validator_tools", "input_validation")
 builder.add_conditional_edges(
     "input_validation",
     route_input_validation,
-    ["input_validator_tools","leave_skill", END],
+    ["input_validator_tools", "leave_skill", END],
 )
 
 # nodes for agenda creation
@@ -557,6 +555,7 @@ builder.add_node(
 )
 builder.add_node("agenda_creation", Assistant(agenda_creator_runnable))
 builder.add_edge("enter_agenda_creation", "agenda_creation")
+
 
 def route_agenda_creator(state: State):
     route = tools_condition(state)
@@ -599,6 +598,7 @@ builder.add_node(
     create_tool_node_with_fallback(document_generation_tools),
 )
 
+
 def route_document_generation(state: State):
     route = tools_condition(state)
     if route == END:
@@ -626,9 +626,6 @@ builder.add_conditional_edges(
     route_document_generation,
     ["document_generation_tools", "leave_skill", END],
 )
-
-
-
 
 
 # This node will be shared for exiting all specialized assistants
