@@ -1,0 +1,12 @@
+az_openai_endpoint="https://yourapi.openai.azure.com/"
+az_open_ai_key=""
+az_open_ai_model="gpt-4o-2024-05-13"
+az_deployment_name="gpt-4o"
+az_openai_api_version="2024-08-01-preview"
+az_application_insights_key="InstrumentationKey=yourapikey"
+
+az_assistant_id = "asst_a4VDNFdAUjxUU7fNic01yr3J"
+file_ids = "assistant-VCKezN4fEWVPpuL5AWNzH7"
+
+API_VERSION="2023-08-01-preview"
+API_TYPE="azure"
