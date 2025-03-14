@@ -71,7 +71,7 @@ class State(TypedDict):
     engagement_type: str
     prompt_template: str
     dialog_state: Annotated[
-        list[Literal["primary_assistant", "notes_extraction"]],
+        list[Literal["primary_assistant", "notes_extraction", "agenda_creation"]],
         update_dialog_stack,
     ]
 
@@ -290,7 +290,7 @@ notes_extractor_runnable = notes_Extractor_Agent_prompt | llm.bind_tools(
 # -------------------------------
 class ToNotesExtractor(BaseModel):
     request: str = Field(
-        description="I want to validate the input before I prepare an Agenda for the Innovation Hub Session for the Customer"
+        description="I want to extract the metadata and agenda goals from the meeting notes."
     )
     internal_briefing_notes: str = Field(
         description="The notes from the internal briefing call, within the Microsoft teams."
@@ -302,14 +302,50 @@ class ToNotesExtractor(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "request": "I want to validate the input before I prepare an Agenda for the Innovation Hub Session for Customer Contoso",
+                "request": "I want to extract the metadata and agenda goals from the meeting notes, for the Innovation Hub Session for Customer Contoso",
                 "internal_briefing_notes": "### Internal Briefing Notes ### \n some internal notes",
                 "external_briefing_notes": "### External Briefing Notes ### \n some external notes",
             }
         }
 
 
+agenda_creator_sys_prompt = """
+    **You are the Agenda Creator Agent**
+    - Your primary responsibility is to generate a detailed Agenda based on the metadata and goals provided as input.
+    - Use the Agenda Template format and instructions below and populate the topics.\n {prompt_template}
+    - You will receive the input for agenda topics creation inside the section labeled **### Engagement Goals Confirmation Message ###**.
+    - When missing information is identified, ask the user for the missing details.
+    - **Create a final Agenda** in the Markdown table format following the sample provided.
+    - Add the created agenda information under the **### Innovation Hub Engagement Agenda ###** section of the message.
+    - Present it to the user and ask for confirmation before finalizing your work.
+"""
 
+agenda_Creator_Agent_prompt = ChatPromptTemplate(
+    [
+        ("system", agenda_creator_sys_prompt),
+        ("placeholder", "{messages}"),
+    ]
+).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+agenda_creator_runnable = agenda_Creator_Agent_prompt | llm.bind_tools(
+    [CompleteOrEscalate]
+)
+
+class ToAgendaCreator(BaseModel):
+    request: str = Field(
+        description="I want to generate a detailed Agenda for the Innovation Hub Session for the Customer"
+    )
+    agenda_goals: str = Field(
+        description="The metadata and detailed goals for the agenda are as follows."
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "request": "I want to prepare a detailed Agenda for the Innovation Hub Session for Customer Contoso",
+                "agenda_goals": "### Engagement Goals Confirmation Message ### \n lot of text",
+            }
+        }
 
 primary_agent_sys_prompt = """
     You are a helpful AI Assistant for the Technical Architect of Microsoft Innovation Hub Team.
@@ -318,10 +354,13 @@ primary_agent_sys_prompt = """
     1. **Notes_Extraction:** Validate the input provided by the user, including meeting notes and metadata.
     - You will receive the input for agenda creation in the section labeled **### Internal Briefing Notes ###** or **### External Briefing Notes ###**.
     - Check if there is content under `### External Briefing Notes ###`. If not, check for `### Internal Briefing Notes ###`.
-    -   If neither is provided, ask the user for them. Use the InputValidator Agent to validate the input and extract metadata including the Type of Engagement,
-    and then infer the engagement type from the meeting notes as per the instructions provided.
+    -   If neither is provided, ask the user for them.
     - You will assign this task to the Notes Extractor Agent, which will extract the metadata and agenda goals from the meeting notes.
-    - This stage completes when the Notes Extraction Agent has completed its task and returned the extracted content under **### Engagement Goals Confirmation Message ###** section of the message.
+    - This stage completes when the Notes Extraction Agent has returned the extracted content under **### Engagement Goals Confirmation Message ###** section of the message.
+    2.**Agenda_Creation:** Use the metadata and engagement goals provided by the Notes Extraction Agent to create an agenda for the Innovation Hub session.
+    - You will receive the metadata and engagement goals in the section labeled **### Engagement Goals Confirmation Message ###**.
+    - You will assign this task to the Agenda Creator Agent, which will generate a detailed agenda for the Innovation Hub Engagement, in Markdown table format
+    - This stage completes when the Agenda Creator Agent has returned the detailed agenda under **### Innovation Hub Engagement Agenda ###** section of the message.
 """
 # -------------------------------
 # Planner (Primary Assistant) Prompt
@@ -333,7 +372,7 @@ primary_agent_prompt = ChatPromptTemplate.from_messages(
     ]
 ).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-primary_agent_runnable = primary_agent_prompt | llm.bind_tools([ToNotesExtractor])
+primary_agent_runnable = primary_agent_prompt | llm.bind_tools([ToNotesExtractor, ToAgendaCreator])
 
 
 # -------------------------------
@@ -467,6 +506,7 @@ def route_notes_extraction(state: State):
     did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
     if did_cancel:
         if "prompt_template" in state and state["prompt_template"]:
+            print("the prompt template is set, hence leaving the skill")
             return "leave_skill"
         else:
             return "set_prompt_template"
@@ -479,12 +519,45 @@ def route_notes_extraction(state: State):
 
 
 
-
-
 builder.add_conditional_edges(
     "notes_extraction",
     route_notes_extraction,
     ["set_prompt_template","leave_skill", END],
+)
+
+
+# -------------------------------
+# Nodes for Agenda Creation
+# -------------------------------
+builder.add_node(
+    "enter_agenda_creation",
+    create_entry_node("Agenda Creation Agent", "agenda_creation"),
+)
+builder.add_node("agenda_creation", Assistant(agenda_creator_runnable))
+builder.add_edge("enter_agenda_creation", "agenda_creation")
+
+def route_agenda_creation(state: State):
+    route = tools_condition(state)
+    if route == END:
+        return END
+    tool_calls = state["messages"][-1].tool_calls
+    did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
+    if did_cancel:
+        return "leave_skill"
+
+    # safe_toolnames = [
+    #     t.name if hasattr(t, "name") else t.__name__ for t in notes_extraction_tools
+    # ]
+    # if all(tc["name"] in safe_toolnames for tc in tool_calls):
+    #     return "notes_extraction_tools"
+    return None
+
+
+
+builder.add_conditional_edges(
+    "agenda_creation",
+    route_agenda_creation,
+    ["leave_skill", END],
 )
 
 
@@ -528,6 +601,9 @@ def route_primary_assistant(state: State):
         if tool_calls[0]["name"] == ToNotesExtractor.__name__:
             print("**** routing to enter_notes_extraction")
             return "enter_notes_extraction"
+        if tool_calls[0]["name"] == ToAgendaCreator.__name__:
+            print("**** routing to agenda creation")
+            return "enter_agenda_creation"
     # If no tool calls are present, route to extract engagement type (if not already set)
     return None
 
@@ -537,6 +613,7 @@ builder.add_conditional_edges(
     route_primary_assistant,
     [
         "enter_notes_extraction",
+        "enter_agenda_creation",
         END,
     ],
 )
@@ -546,7 +623,7 @@ builder.add_conditional_edges(
 # When the user responds, we want to return to the currently active workflow
 def route_to_workflow(
     state: State,
-) -> Literal["primary_assistant", "notes_extraction"]:
+) -> Literal["primary_assistant", "notes_extraction", "agenda_creation"]:
     """If we are in a delegated state, route directly to the appropriate assistant."""
     dialog_state = state.get("dialog_state")
     if not dialog_state:
