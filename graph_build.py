@@ -347,6 +347,45 @@ class ToAgendaCreator(BaseModel):
             }
         }
 
+
+# -------------------------------
+# Document Generator Agent Prompt
+# -------------------------------
+document_generator_sys_prompt = """
+## Identity and Role
+- **You are the DocumentGeneratorAgent.**
+- Your primary responsibility is to generate a Microsoft Office Word document (.docx) based on the agenda topics provided as input to you.
+- Use the tools provided to you to generate the Word document.
+"""
+
+document_generation_prompt = ChatPromptTemplate(
+    [
+        ("system", document_generator_sys_prompt),
+        ("placeholder", "{messages}"),
+    ]
+).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+document_generation_tools = [generate_agenda_document]
+
+document_generation_runnable = document_generation_prompt | llm.bind_tools(
+    document_generation_tools + [CompleteOrEscalate]
+)
+
+class ToDocumentGenerator(BaseModel):
+    query: str = Field(
+        description="Create a Microsoft Office Word document (.docx) for the agenda items created"
+    )
+    config: RunnableConfig = Field(
+        description="The configuration for the document generation"
+    )
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "query": "| Time (IST)          | Speaker             | Topic                      | Description ...",
+                "config": '{{"configurable": {"customer_name": "Ravi Kumar","thread_id": "abcd12344","asst_thread_id": "bcde56789"}}',
+            },
+        }
+
 primary_agent_sys_prompt = """
     You are a helpful AI Assistant for the Technical Architect of Microsoft Innovation Hub Team.
     Your primary role is to help the Technical architect to prepare an Agenda for the Innovation Hub Session for the Customer.
@@ -372,7 +411,7 @@ primary_agent_prompt = ChatPromptTemplate.from_messages(
     ]
 ).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-primary_agent_runnable = primary_agent_prompt | llm.bind_tools([ToNotesExtractor, ToAgendaCreator])
+primary_agent_runnable = primary_agent_prompt | llm.bind_tools([ToNotesExtractor, ToAgendaCreator,ToDocumentGenerator])
 
 
 # -------------------------------
@@ -560,7 +599,39 @@ builder.add_conditional_edges(
     ["leave_skill", END],
 )
 
+# -------------------------------
+# Nodes for Document Generation
+# -------------------------------
+builder.add_node(
+    "enter_document_generation",
+    create_entry_node("Document Generation Assistant", "document_generation"),
+)
+builder.add_node("document_generation", Assistant(document_generation_runnable))
+builder.add_edge("enter_document_generation", "document_generation")
+builder.add_node(
+    "document_generation_tools",
+    create_tool_node_with_fallback(document_generation_tools),
+)
 
+def route_document_generation(state: State):
+    route = tools_condition(state)
+    if route == END:
+        return END
+    tool_calls = state["messages"][-1].tool_calls
+    did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
+    if did_cancel:
+        return "leave_skill"
+    safe_toolnames = [t.name if hasattr(t, "name") else t.__name__ for t in document_generation_tools]
+    if all(tc["name"] in safe_toolnames for tc in tool_calls):
+        return "document_generation_tools"
+    return None
+
+builder.add_edge("document_generation_tools", "document_generation")
+builder.add_conditional_edges(
+    "document_generation",
+    route_document_generation,
+    ["document_generation_tools", "leave_skill", END],
+)
 # -------------------------------
 # Node to Exit Specialized Assistants
 # -------------------------------
@@ -604,6 +675,9 @@ def route_primary_assistant(state: State):
         if tool_calls[0]["name"] == ToAgendaCreator.__name__:
             print("**** routing to agenda creation")
             return "enter_agenda_creation"
+        if tool_calls[0]["name"] == ToDocumentGenerator.__name__:
+            print("**** routing to enter_document_generation")
+            return "enter_document_generation"
     # If no tool calls are present, route to extract engagement type (if not already set)
     return None
 
@@ -614,6 +688,7 @@ builder.add_conditional_edges(
     [
         "enter_notes_extraction",
         "enter_agenda_creation",
+        "enter_document_generation",
         END,
     ],
 )
@@ -623,7 +698,7 @@ builder.add_conditional_edges(
 # When the user responds, we want to return to the currently active workflow
 def route_to_workflow(
     state: State,
-) -> Literal["primary_assistant", "notes_extraction", "agenda_creation"]:
+) -> Literal["primary_assistant", "notes_extraction", "agenda_creation", "document_generation"]:
     """If we are in a delegated state, route directly to the appropriate assistant."""
     dialog_state = state.get("dialog_state")
     if not dialog_state:
