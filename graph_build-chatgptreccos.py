@@ -56,25 +56,29 @@ client = AzureOpenAI(
     api_version=az_openai_version,
 )
 
-
 def update_dialog_stack(left: list[str], right: Optional[str]) -> list[str]:
-    """Push or pop the state."""
     if right is None:
         return left
     if right == "pop":
         return left[:-1]
     return left + [right]
 
-
 class State(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
-    engagement_type: str
-    prompt_template: str
+    user_info: str
     dialog_state: Annotated[
-        list[Literal["primary_assistant", "notes_extraction"]],
+        list[
+            Literal[
+                "primary_assistant",
+                "input_validation",
+                "agenda_creation",
+                "document_generation",
+            ]
+        ],
         update_dialog_stack,
     ]
-
+    engagement_type: str
+    prompt_template: str
 
 class Assistant:
     def __init__(self, runnable: Runnable):
@@ -83,7 +87,6 @@ class Assistant:
     def __call__(self, state: State, config: RunnableConfig):
         while True:
             result = self.runnable.invoke(state)
-
             if not result.tool_calls and (
                 not result.content
                 or isinstance(result.content, list)
@@ -95,11 +98,7 @@ class Assistant:
                 break
         return {"messages": result}
 
-
 class CompleteOrEscalate(BaseModel):
-    """A tool to mark the current task as completed and/or to escalate control of the dialog to the main assistant,
-    who can re-route the dialog based on the user's needs."""
-
     cancel: bool = True
     reason: str
 
@@ -119,15 +118,14 @@ class CompleteOrEscalate(BaseModel):
             },
         }
 
-
 # -------------------------------
-# Notes Extractor Agent Prompt
+# Input Validator Agent Prompt
 # -------------------------------
-notes_extractor_sys_prompt = """
+input_validator_sys_prompt = """
 - **Identity and Role:**
-  - You are the Notes Extractor Agent. 
+  - You are the InputValidatorAgent.
   - Your primary responsibility is to extract, validate, and confirm essential details from the provided meeting notes.
-  - After extraction, your goal is to create a clear, concise table of Customer Goals & Goals Description from the Engagement, based on the content in the notes, then present this information in a Markdown table.
+  - After extraction, your goal is to create a clear, concise table of topics based on the content in the notes, then present this information in a Markdown table.
 
 - **Briefing Notes Handling:**
   - Meeting notes may be provided as either:
@@ -156,29 +154,6 @@ notes_extractor_sys_prompt = """
       - Extract from the notes if available; if not, ask for confirmation.
     - **Type of Engagement:**
       - Allowed types: BUSINESS_ENVISIONING, SOLUTION_ENVISIONING, ADS, RAPID_PROTOTYPE, HACKATHON, CONSULT.
-      - Use the following rules to determine the Type of Engagement, based on the intent captured in the notes:
-       a) It is RAPID_PROTOTYPE when:
-        - The intent is to develop a component of the solution or build a proof of concept, or if the customer is looking for a prototype of a solution at the Innovation Hub.
-        - It is in the context of an identified use case or component that needs to be realised
-       b) It is ADS when:
-        - The intent is to develop a solution architecture for the customer, or review their architecture, or modernize their workloads.
-        - It will be in the context of a specific use case or component that needs to be realised.
-        - It is meant to be a technical discussion, and not a business discussion.
-       c) It is HACKATHON when:
-        - The intent is to have different teams within the Customer Organization form teams to hack different use cases, to familiarize themselves with the technology
-        - It is **not** in the context of a specific use case or component that needs to be realised.
-       d) It is BUSINESS_ENVISIONING when:
-        - The intent is to understand Microsoft's Point of view in a particular domain, or understand case studies or use cases of other customers in the same domain, or understand the latest from Microsoft technology offerings, Demonstrations of capabilities, etc.
-        - It is meant only for a Business audience, and not for a technical audience.
-       e) It is SOLUTION_ENVISIONING when:
-        - The intent is to understand how Microsoft technology can be used to solve a specific business problem, or how Microsoft technology can be used to build a solution for the customer.
-        - It is meant for both a technical audience, and not for a business audience.
-       f) It is CONSULT when:
-        - The intent is to have a discussion with the customer on a specific topic, or to understand the customer's needs and requirements, or to provide guidance on a specific topic.
-        - It is usually very short duration, of upto 2 to 3 hours in its entirety.
-        - It is at times referred as a Boardroom Series.
-       If the intent is to develop a solution in a short time frame, or if the customer is looking for a hackathon to develop a solution.
-        - If there is a clear mention of Architecture Review, or create a new Solution architecture, or workload modernization, or 
       - Use context clues from the notes (e.g., mentions of architecture review, solution co-development, workshops, etc.) to infer the type; if uncertain, ask the user.
       - **Display the inferred engagement type as follows:** "SOLUTION_ENVISIONING (inferred from mentions of AI and business applications)".
     - **Mode of Delivery of the Engagement:**
@@ -188,10 +163,10 @@ notes_extractor_sys_prompt = """
     - **Depth of the Conversation:**
       - Options: purely technical, purely domain/business, or a combination of technical & business.
       - Infer from the notes; if unclear, ask the user.
-      - **Display the inferred value with reasoning:** e.g., "combination of technical & business (inferred from mentions of both AI Use case scenarios in Manufacturing and demonstrations of latest AI capabilities in the platform)".
+      - **Display the inferred value with reasoning:** e.g., "Combination (inferred from mentions of both AI narrative and business applications)".
     - **Lead Architect from Microsoft Innovation Hub:**
       - Expected to be one of: Srikantan Sankaran, Divya SK, Bishnu Agrawal, Vishakha Arbat, Pallavi Lokesh.
-      - Confirm if the lead architect is clearly mentioned in the notes; if ambiguous, ask the user.
+      - Confirm if the lead is clearly mentioned in the notes; if ambiguous, ask the user.
       - **Display the inferred value with reasoning:** e.g., "<Architect Name1> (inferred from multiple references to Architect Name1 leading the discussion)".
 
   - **Optional Metadata:**
@@ -207,18 +182,18 @@ notes_extractor_sys_prompt = """
       - **Display inferred details with reasoning if applicable.**
 
   - **Step 3: Agenda Goals and Metadata Extraction**
-    - Parse the briefing notes to list each goal that the customer wants to cover.
-    - For each goal, provide a bullet-point list of the detailed information captured in the notes.
+    - Parse the briefing notes to list each goal or topic that the customer wants to cover.
+    - For each goal/topic, provide a bullet-point list of the detailed information captured in the notes.
 
 - **Post-Extraction Confirmation:**
   - **Step-a: Metadata Confirmation Message**
     - Present the extracted metadata in the following format:
       ```
       **Customer Name:** $CustomerName  
-      **Date of the Engagement:** $Date  in DD-MMM-YYYY format
-      **Customer Team will arrive for the Engagement at:** $time
-      **Mode of Delivery:** $locationName OR virtual
-      **Type of Engagement:** $EngagementType
+      **Date of the Engagement:** $Date  
+      **Customer Team will arrive for the Engagement at:** $time  
+      **Mode of Delivery:** $locationName OR virtual  
+      **Type of Engagement:** $EngagementType  
 
       **Tentative number of participants are:**  
       - **In person:** ($persons)
@@ -226,7 +201,7 @@ notes_extractor_sys_prompt = """
       - **Virtual:** ($persons)  
 
       **Key stakeholders who would be attending the Session:**
-      [$CustomerName Team]
+      [Customer Team]
       - Person 1, Designation 1  
       - Person 2, Designation 2  
       - And so on  
@@ -240,11 +215,11 @@ notes_extractor_sys_prompt = """
       ```
     - **Instruction:** Wait for the user's confirmation of these metadata details before proceeding.
 
-  - **Step-b: Agenda Goals and Goal details Extraction Confirmation**
-    - **Important:** Once metadata has been confirmed by the user, send a separate confirmation message exclusively for the agenda goals extraction.
+  - **Step-b: Agenda Goals and Topics Extraction Confirmation**
+    - **Important:** Once metadata has been confirmed by the user, send a separate confirmation message exclusively for the agenda topics extraction.
     - This message should begin with:
-      > "Here is what I gather from the Meeting Notes regarding the agenda goals and goal details. Can you confirm if this is ok ?"
-    - Follow this with a bullet-point list of only the agenda goals and goal description (do not include any metadata details), for example:
+      > "Here is what I gather from the Meeting Notes regarding the agenda goals and topics. Can I proceed to generate an Agenda Draft outline and schedule for it?"
+    - Follow this with a bullet-point list of only the agenda goals and topics (do not include any metadata details), for example:
       ```
       - Goal 1: $Goal1
           - $Goal1Details
@@ -256,39 +231,80 @@ notes_extractor_sys_prompt = """
           - $Goal3Details
           - Additional details...
       ```
-    - **Instruction:** Wait for the user's confirmation of the agenda goals before proceeding further.
+    - **Instruction:** Wait for the user's confirmation of the agenda details before proceeding further.
 
-  - **Verification:**
-    - Ensure that the:
-        - metadata content is generated as described in (Step-a) and 
-        - Engagement Goals and Goal descriptions are clearly presented and easy to read.
+  - **Step-c** Call tool action to set the prompt template for the agenda creation agent.
+    - **Instruction:** Call the tool action to set the prompt template for the agenda creation agent, using the engagement type extracted in the metadata.
+
 - **Final Note:**  
-  - The first line in your response should be:'Type of Engagement: <ENGAGEMENT_TYPE> (inferred from ...)'
-  - The second line in your response should be **### Engagement Goals Confirmation Message ###**.
-  - Next, add the generated content from the metadata confirmation (Step-a) and the agenda goals confirmation (Step-b) messages.
+  - Ensure that the metadata confirmation (Step-a) and the agenda topics confirmation (Step-b) are output as two distinct messages with no overlap of content.
+  - Paste these below the **### Topics Confirmation Message ###** section of the message.
 
-- **Some Don'ts:**
-  - Your responsibility ends with the extraction of metadata and agenda goals from the meeting notes.
-  - Do not attempt to create an agenda draft or schedule for the meeting. This will be handled by another Agent.
-  - Do not add any additional information or repeat content from the briefing notes in your response, unnecessarily.
+  
 """
 
-notes_Extractor_Agent_prompt = ChatPromptTemplate(
+input_Validator_Agent_prompt = ChatPromptTemplate(
     [
-        ("system", notes_extractor_sys_prompt),
+        ("system", input_validator_sys_prompt),
         ("placeholder", "{messages}"),
     ]
 ).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-notes_extractor_runnable = notes_Extractor_Agent_prompt | llm.bind_tools(
+input_validator_tools = [set_prompt_template]
+input_validator_runnable = input_Validator_Agent_prompt | llm.bind_tools(
+    input_validator_tools + [CompleteOrEscalate]
+)
+
+# -------------------------------
+# Agenda Creator Agent Prompt
+# -------------------------------
+agenda_creator_Agent_prompt = ChatPromptTemplate(
+    [
+        (
+            "system",
+            "**You are the AgendaCreatorAgent.**"
+            "- Your primary responsibility is to generate the topics for the Agenda based on the metadata and goals provided as input."
+            "- Use the Agenda Template format and instructions below and populate the topics.\n {{prompt_template}} \n"
+            "- You will receive the input for agenda topics creation inside the section labeled **### Topics Confirmation Message ###**."
+            "- When missing information is identified, ask the user for the missing details."
+            "- **Create a final Agenda** in the Markdown table format following the sample provided."
+            "- **After generating the Agenda table**, present it to the user and ask for confirmation before finalizing your work.",
+        ),
+        ("placeholder", "{messages}"),
+    ]
+).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+agenda_creator_runnable = agenda_creator_Agent_prompt | llm.bind_tools(
     [CompleteOrEscalate]
 )
 
+# -------------------------------
+# Document Generator Agent Prompt
+# -------------------------------
+document_generator_sys_prompt = """
+## Identity and Role
+- **You are the DocumentGeneratorAgent.**
+- Your primary responsibility is to generate a Microsoft Office Word document (.docx) based on the agenda topics provided as input to you.
+- Use the tools provided to you to generate the Word document.
+"""
+
+document_generation_prompt = ChatPromptTemplate(
+    [
+        ("system", document_generator_sys_prompt),
+        ("placeholder", "{messages}"),
+    ]
+).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+document_generation_tools = [generate_agenda_document]
+
+document_generation_runnable = document_generation_prompt | llm.bind_tools(
+    document_generation_tools + [CompleteOrEscalate]
+)
 
 # -------------------------------
 # Data Transfer Models
 # -------------------------------
-class ToNotesExtractor(BaseModel):
+class ToInputValidator(BaseModel):
     request: str = Field(
         description="I want to validate the input before I prepare an Agenda for the Innovation Hub Session for the Customer"
     )
@@ -298,7 +314,6 @@ class ToNotesExtractor(BaseModel):
     external_briefing_notes: str = Field(
         description="The notes from the external briefing call, with the Customer."
     )
-
     class Config:
         json_schema_extra = {
             "example": {
@@ -308,33 +323,59 @@ class ToNotesExtractor(BaseModel):
             }
         }
 
+class ToAgendaCreator(BaseModel):
+    request: str = Field(
+        description="Prepare an Agenda Draft outline and schedule for the Innovation Hub Session for the Customer"
+    )
+    topics_confirmation: str = Field(
+        description="### Topics Confirmation Message ### /n lots of text"
+    )
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "request": "I want to prepare an Agenda for the Innovation Hub Session for Customer Contoso",
+                "topics_confirmation": "### Topics Confirmation Message ### /n lots of text",
+            }
+        }
 
+class ToDocumentGenerator(BaseModel):
+    query: str = Field(
+        description="Create a Microsoft Office Word document (.docx) for the agenda items created"
+    )
+    config: RunnableConfig = Field(
+        description="The configuration for the document generation"
+    )
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "query": "| Time (IST)          | Speaker             | Topic                      | Description ...",
+                "config": '{{"configurable": {"customer_name": "Ravi Kumar","thread_id": "abcd12344","asst_thread_id": "bcde56789"}}',
+            },
+        }
 
-
-primary_agent_sys_prompt = """
-    You are a helpful AI Assistant for the Technical Architect of Microsoft Innovation Hub Team.
-    Your primary role is to help the Technical architect to prepare an Agenda for the Innovation Hub Session for the Customer.
-    There are 3 workflow stages to this process:
-    1. **Notes_Extraction:** Validate the input provided by the user, including meeting notes and metadata.
-    - You will receive the input for agenda creation in the section labeled **### Internal Briefing Notes ###** or **### External Briefing Notes ###**.
-    - Check if there is content under `### External Briefing Notes ###`. If not, check for `### Internal Briefing Notes ###`.
-    -   If neither is provided, ask the user for them. Use the InputValidator Agent to validate the input and extract metadata including the Type of Engagement,
-    and then infer the engagement type from the meeting notes as per the instructions provided.
-    - You will assign this task to the Notes Extractor Agent, which will extract the metadata and agenda goals from the meeting notes.
-    - This stage completes when the Notes Extraction Agent has completed its task and returned the extracted content under **### Engagement Goals Confirmation Message ###** section of the message.
-"""
 # -------------------------------
 # Planner (Primary Assistant) Prompt
 # -------------------------------
-primary_agent_prompt = ChatPromptTemplate.from_messages(
+planner_agent_prompt = ChatPromptTemplate.from_messages(
     [
-        ("system", primary_agent_sys_prompt),
+        (
+            "system",
+            "You are a helpful AI Assistant for the Technical Architect of Microsoft Innovation Hub Team. "
+            "Your primary role is to help the Technical architect to prepare an Agenda for the Innovation Hub Session for the Customer. "
+            "You will receive the input for topic creation in the section labeled **### Internal Briefing Notes ###** or **### External Briefing Notes ###**. "
+            "Check if there is content under `### External Briefing Notes ###`. If not, check for `### Internal Briefing Notes ###`. "
+            "If neither is provided, ask the user for them. Use the InputValidator Agent to validate the input and extract metadata including the Type of Engagement, "
+            "and then infer the engagement type from the meeting notes as per the instructions provided. "
+            "Display the inferred engagement type as: 'Type of Engagement: <ENGAGEMENT_TYPE> (inferred from ...)' in your output. "
+            "Then delegate the workflow to the appropriate specialized assistant without mentioning the internal routing."
+        ),
         ("placeholder", "{messages}"),
     ]
 ).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-primary_agent_runnable = primary_agent_prompt | llm.bind_tools([ToNotesExtractor])
-
+planner_agent_runnable = planner_agent_prompt | llm.bind_tools(
+    [ToInputValidator, ToAgendaCreator, ToDocumentGenerator]
+)
 
 # -------------------------------
 # Graph Nodes and Edges
@@ -345,19 +386,16 @@ def create_entry_node(assistant_name: str, new_dialog_state: str) -> Callable:
         return {
             "messages": [
                 ToolMessage(
-                    content=f"The assistant is now the {assistant_name}. Reflect on the above conversation between the host assistant and the user."
-                    f" The user's intent is unsatisfied. Use the provided tools to assist the user. Remember, you are {assistant_name},"
-                    " and the booking, update, other other action is not complete until after you have successfully invoked the appropriate tool."
-                    " If the user changes their mind or needs help for other tasks, call the CompleteOrEscalate function to let the primary host assistant take control."
-                    " Do not mention who you are - just act as the proxy for the assistant.",
+                    content=f"The assistant is now the {assistant_name}. Reflect on the above conversation between the host assistant and the user. "
+                            f"The user's intent is unsatisfied. Use the provided tools to assist the user. Remember, you are {assistant_name}, "
+                            "and the booking, update, or other action is not complete until after you have successfully invoked the appropriate tool. "
+                            "If the user changes their mind or needs help for other tasks, call the CompleteOrEscalate function to let the primary host assistant take control.",
                     tool_call_id=tool_call_id,
                 )
             ],
             "dialog_state": new_dialog_state,
         }
-
     return entry_node
-
 
 def handle_tool_error(state) -> dict:
     error = state.get("error")
@@ -372,12 +410,10 @@ def handle_tool_error(state) -> dict:
         ]
     }
 
-
 def create_tool_node_with_fallback(tools: list) -> dict:
     return ToolNode(tools).with_fallbacks(
         [RunnableLambda(handle_tool_error)], exception_key="error"
     )
-
 
 def _print_event(event: dict, _printed: set, max_length=1500):
     current_state = event.get("dialog_state")
@@ -394,113 +430,172 @@ def _print_event(event: dict, _printed: set, max_length=1500):
             print(msg_repr)
             _printed.add(message.id)
 
-
 builder = StateGraph(State)
-
 
 def user_info(state: State):
     return {"user_info": "User info"}
 
-
 builder.add_node("fetch_user_info", user_info)
 builder.add_edge(START, "fetch_user_info")
 
-def prompt_template(state: State) -> dict:
-    print("Setting update_prompt_template_node")
-    
-    assistant_response = None
-    # Iterate backwards over messages to find the desired assistant response
-    for msg in reversed(state["messages"]):
-        if hasattr(msg, "content") and "Type of Engagement:" in msg.content:
-            assistant_response = msg.content
-            break
-    
-    if assistant_response:
+# ------------------------------------------------------------------
+# New Node: Infer Engagement Type from Meeting Notes (Primary Assistant output)
+# ------------------------------------------------------------------
+def infer_engagement_type_from_meeting_notes(state: State) -> dict:
+    # Assume the primary assistant's output contains a line like:
+    # "Type of Engagement: SOLUTION_ENVISIONING (inferred from mentions of AI and business applications)"
+    assistant_response = state["messages"][-1].content
+    if "Type of Engagement:" in assistant_response:
         try:
             part = assistant_response.split("Type of Engagement:")[1].strip()
+            # Extract the inferred type before the reasoning in parentheses
             engagement_inferred = part.split("(")[0].strip()
             state["engagement_type"] = engagement_inferred
-            print(f"Extracted engagement type: {engagement_inferred}")
-            
-            # Define valid engagement types
-            valid_types = {"BUSINESS_ENVISIONING", "SOLUTION_ENVISIONING", "ADS", 
-                          "RAPID_PROTOTYPE", "HACKATHON", "CONSULT"}
-            
-            # Find the first matching valid type in the string
-            engagement_type = next((t for t in valid_types if t in engagement_inferred), "SOLUTION_ENVISIONING")
-            state["engagement_type"] = engagement_type
         except Exception:
             state["engagement_type"] = "SOLUTION_ENVISIONING"  # Fallback default
     else:
         state["engagement_type"] = "SOLUTION_ENVISIONING"  # Default if not found
-    
-    if state.get("engagement_type"):
+    memory.save_state(state)
+    print(f"Cached Engagement Type: {state['engagement_type']}")
+    return {"engagement_type": state["engagement_type"]}
+
+builder.add_node("extract_engagement_type", infer_engagement_type_from_meeting_notes)
+
+# ------------------------------------------------------------------
+# Existing Node: Update Prompt Template based on Engagement Type
+# ------------------------------------------------------------------
+def update_prompt_template_node(state: State) -> dict:
+    print("Calling update_prompt_template_node")
+    if "engagement_type" in state and state["engagement_type"]:
         engagement_type = state["engagement_type"]
         template_result = set_prompt_template(engagement_type)
         state["prompt_template"] = template_result["prompt_template"]
         print(f"Updated prompt_template for engagement type {engagement_type}")
     else:
         print("engagement_type not found in state; cannot update prompt_template")
-    
     return {"prompt_template": state.get("prompt_template", None)}
 
-
-builder.add_node("set_prompt_template", prompt_template)
+builder.add_node("update_prompt_template", update_prompt_template_node)
+# Route: From extraction node -> update prompt template node
+builder.add_edge("extract_engagement_type", "update_prompt_template")
+# After updating the prompt template, proceed to agenda creation
+builder.add_edge("update_prompt_template", "enter_agenda_creation")
 
 # -------------------------------
-# Nodes for Notes Extraction
+# Nodes for Input Validation
 # -------------------------------
 builder.add_node(
-    "enter_notes_extraction",
-    create_entry_node("Notes Extraction Agent", "notes_extraction"),
+    "enter_input_validation",
+    create_entry_node("Input Validation Assistant", "input_validation"),
 )
-builder.add_node("notes_extraction", Assistant(notes_extractor_runnable))
-builder.add_edge("enter_notes_extraction", "notes_extraction")
-builder.add_edge("set_prompt_template", "leave_skill")
+builder.add_node("input_validation", Assistant(input_validator_runnable))
+builder.add_edge("enter_input_validation", "input_validation")
 
-
-def route_notes_extraction(state: State):
+def route_input_validation(state: State):
     route = tools_condition(state)
     if route == END:
         return END
     tool_calls = state["messages"][-1].tool_calls
     did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
     if did_cancel:
-        if "prompt_template" in state and state["prompt_template"]:
-            return "leave_skill"
-        else:
-            return "set_prompt_template"
-    # safe_toolnames = [
-    #     t.name if hasattr(t, "name") else t.__name__ for t in notes_extraction_tools
-    # ]
-    # if all(tc["name"] in safe_toolnames for tc in tool_calls):
-    #     return "notes_extraction_tools"
+        return "leave_skill"
+    safe_toolnames = [t.name if hasattr(t, "name") else t.__name__ for t in input_validator_tools]
+    if all(tc["name"] in safe_toolnames for tc in tool_calls):
+        return "input_validator_tools"
     return None
 
-
-
-
-
+builder.add_node(
+    "input_validator_tools",
+    create_tool_node_with_fallback(input_validator_tools),
+)
+builder.add_edge("input_validator_tools", "input_validation")
 builder.add_conditional_edges(
-    "notes_extraction",
-    route_notes_extraction,
-    ["set_prompt_template","leave_skill", END],
+    "input_validation",
+    route_input_validation,
+    ["input_validator_tools", "leave_skill", END],
 )
 
+# -------------------------------
+# Nodes for Agenda Creation
+# -------------------------------
+builder.add_node(
+    "enter_agenda_creation",
+    create_entry_node("Agenda Creation Assistant", "agenda_creation"),
+)
+builder.add_node("agenda_creation", Assistant(agenda_creator_runnable))
+builder.add_edge("enter_agenda_creation", "agenda_creation")
+
+# New Node: Respond to outstanding tool calls in Agenda Creation
+def respond_to_agenda_tool_calls(state: State) -> dict:
+    tool_calls = state["messages"][-1].tool_calls
+    responses = []
+    for tc in tool_calls:
+        responses.append(ToolMessage(content="Acknowledged tool call. Proceeding with agenda creation.", tool_call_id=tc["id"]))
+    return {"messages": responses}
+
+builder.add_node("agenda_creation_tool_responder", respond_to_agenda_tool_calls)
+
+# Modified Route for Agenda Creator: Check for outstanding tool calls or user confirmation
+def route_agenda_creator(state: State):
+    # If there are outstanding tool calls, respond to them first
+    if state["messages"][-1].tool_calls:
+         return "agenda_creation_tool_responder"
+    # Check for user input indicating confirmation to proceed
+    for role, message in state["messages"]:
+         if role == "user" and ("confirm" in message.lower() or "proceed" in message.lower()):
+             print("User confirmation detected, proceeding to Document Generation.")
+             return "enter_document_generation"
+    return None
+
+builder.add_conditional_edges(
+    "agenda_creation",
+    route_agenda_creator,
+    ["leave_skill", "agenda_creation_tool_responder", "enter_document_generation", END],
+)
+
+# Ensure that after tool responder, we proceed to document generation
+builder.add_edge("agenda_creation_tool_responder", "enter_document_generation")
+
+# -------------------------------
+# Nodes for Document Generation
+# -------------------------------
+builder.add_node(
+    "enter_document_generation",
+    create_entry_node("Document Generation Assistant", "document_generation"),
+)
+builder.add_node("document_generation", Assistant(document_generation_runnable))
+builder.add_edge("enter_document_generation", "document_generation")
+builder.add_node(
+    "document_generation_tools",
+    create_tool_node_with_fallback(document_generation_tools),
+)
+
+def route_document_generation(state: State):
+    route = tools_condition(state)
+    if route == END:
+        return END
+    tool_calls = state["messages"][-1].tool_calls
+    did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
+    if did_cancel:
+        return "leave_skill"
+    safe_toolnames = [t.name if hasattr(t, "name") else t.__name__ for t in document_generation_tools]
+    if all(tc["name"] in safe_toolnames for tc in tool_calls):
+        return "document_generation_tools"
+    return None
+
+builder.add_edge("document_generation_tools", "document_generation")
+builder.add_conditional_edges(
+    "document_generation",
+    route_document_generation,
+    ["document_generation_tools", "leave_skill", END],
+)
 
 # -------------------------------
 # Node to Exit Specialized Assistants
 # -------------------------------
-# This node will be shared for exiting all specialized assistants
 def pop_dialog_state(state: State) -> dict:
-    """Pop the dialog stack and return to the main assistant.
-
-    This lets the full graph explicitly track the dialog flow and delegate control
-    to specific sub-graphs.
-    """
     messages = []
     if state["messages"][-1].tool_calls:
-        # Note: Doesn't currently handle the edge case where the llm performs parallel tool calls
         messages.append(
             ToolMessage(
                 content="Resuming dialog with the host assistant. Please reflect on the past conversation and assist the user as needed.",
@@ -509,15 +604,13 @@ def pop_dialog_state(state: State) -> dict:
         )
     return {"dialog_state": "pop", "messages": messages}
 
-
 builder.add_node("leave_skill", pop_dialog_state)
 builder.add_edge("leave_skill", "primary_assistant")
 
 # -------------------------------
 # Primary Assistant Node
 # -------------------------------
-builder.add_node("primary_assistant", Assistant(primary_agent_runnable))
-
+builder.add_node("primary_assistant", Assistant(planner_agent_runnable))
 
 def route_primary_assistant(state: State):
     route = tools_condition(state)
@@ -525,38 +618,38 @@ def route_primary_assistant(state: State):
         return END
     tool_calls = state["messages"][-1].tool_calls
     if tool_calls:
-        if tool_calls[0]["name"] == ToNotesExtractor.__name__:
-            print("**** routing to enter_notes_extraction")
-            return "enter_notes_extraction"
+        if tool_calls[0]["name"] == ToInputValidator.__name__:
+            print("**** routing to enter_input_validation")
+            return "enter_input_validation"
+        elif tool_calls[0]["name"] == ToAgendaCreator.__name__:
+            return "enter_agenda_creation"
+        elif tool_calls[0]["name"] == ToDocumentGenerator.__name__:
+            print("**** routing to enter_document_generation")
+            return "enter_document_generation"
     # If no tool calls are present, route to extract engagement type (if not already set)
-    return None
-
+    return "extract_engagement_type"
 
 builder.add_conditional_edges(
     "primary_assistant",
     route_primary_assistant,
     [
-        "enter_notes_extraction",
+        "enter_input_validation",
+        "enter_agenda_creation",
+        "enter_document_generation",
+        "extract_engagement_type",
         END,
     ],
 )
 
-
-# Each delegated workflow can directly respond to the user
-# When the user responds, we want to return to the currently active workflow
-def route_to_workflow(
-    state: State,
-) -> Literal["primary_assistant", "notes_extraction"]:
-    """If we are in a delegated state, route directly to the appropriate assistant."""
+def route_to_workflow(state: State) -> Literal[
+    "primary_assistant", "input_validation", "agenda_creation", "document_generation"
+]:
     dialog_state = state.get("dialog_state")
     if not dialog_state:
         return "primary_assistant"
     return dialog_state[-1]
 
-
-
 builder.add_conditional_edges("fetch_user_info", route_to_workflow)
-
 
 memory = MemorySaver()
 graph = builder.compile(checkpointer=memory)

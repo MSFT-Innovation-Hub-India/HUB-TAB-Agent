@@ -7,16 +7,13 @@ from langchain_core.runnables import RunnableConfig
 import time
 import json
 
-
-
-@tool
 def set_prompt_template(engagement_type: str) -> dict:
     """
     Based on the input engagement type, set the appropriate prompt template.
     """
     
-    print(f"------------setting engagment prompt template-----------------------")
-    print(f"Setting Engagement Type to: {engagement_type}.........")
+    print(f"-calling tool to set the Engagement Type to: {engagement_type}.........")
+    # print(f"Setting Engagement Type to: {engagement_type}.........")
     e_type=get_prompt_for_engagement_type(engagement_type)
     print(f"Setting Engagement Type to: {e_type}.........")
     return {"prompt_template": e_type}

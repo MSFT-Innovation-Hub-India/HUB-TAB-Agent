@@ -156,29 +156,6 @@ notes_extractor_sys_prompt = """
       - Extract from the notes if available; if not, ask for confirmation.
     - **Type of Engagement:**
       - Allowed types: BUSINESS_ENVISIONING, SOLUTION_ENVISIONING, ADS, RAPID_PROTOTYPE, HACKATHON, CONSULT.
-      - Use the following rules to determine the Type of Engagement, based on the intent captured in the notes:
-       a) It is RAPID_PROTOTYPE when:
-        - The intent is to develop a component of the solution or build a proof of concept, or if the customer is looking for a prototype of a solution at the Innovation Hub.
-        - It is in the context of an identified use case or component that needs to be realised
-       b) It is ADS when:
-        - The intent is to develop a solution architecture for the customer, or review their architecture, or modernize their workloads.
-        - It will be in the context of a specific use case or component that needs to be realised.
-        - It is meant to be a technical discussion, and not a business discussion.
-       c) It is HACKATHON when:
-        - The intent is to have different teams within the Customer Organization form teams to hack different use cases, to familiarize themselves with the technology
-        - It is **not** in the context of a specific use case or component that needs to be realised.
-       d) It is BUSINESS_ENVISIONING when:
-        - The intent is to understand Microsoft's Point of view in a particular domain, or understand case studies or use cases of other customers in the same domain, or understand the latest from Microsoft technology offerings, Demonstrations of capabilities, etc.
-        - It is meant only for a Business audience, and not for a technical audience.
-       e) It is SOLUTION_ENVISIONING when:
-        - The intent is to understand how Microsoft technology can be used to solve a specific business problem, or how Microsoft technology can be used to build a solution for the customer.
-        - It is meant for both a technical audience, and not for a business audience.
-       f) It is CONSULT when:
-        - The intent is to have a discussion with the customer on a specific topic, or to understand the customer's needs and requirements, or to provide guidance on a specific topic.
-        - It is usually very short duration, of upto 2 to 3 hours in its entirety.
-        - It is at times referred as a Boardroom Series.
-       If the intent is to develop a solution in a short time frame, or if the customer is looking for a hackathon to develop a solution.
-        - If there is a clear mention of Architecture Review, or create a new Solution architecture, or workload modernization, or 
       - Use context clues from the notes (e.g., mentions of architecture review, solution co-development, workshops, etc.) to infer the type; if uncertain, ask the user.
       - **Display the inferred engagement type as follows:** "SOLUTION_ENVISIONING (inferred from mentions of AI and business applications)".
     - **Mode of Delivery of the Engagement:**
@@ -263,9 +240,8 @@ notes_extractor_sys_prompt = """
         - metadata content is generated as described in (Step-a) and 
         - Engagement Goals and Goal descriptions are clearly presented and easy to read.
 - **Final Note:**  
-  - The first line in your response should be:'Type of Engagement: <ENGAGEMENT_TYPE> (inferred from ...)'
-  - The second line in your response should be **### Engagement Goals Confirmation Message ###**.
-  - Next, add the generated content from the metadata confirmation (Step-a) and the agenda goals confirmation (Step-b) messages.
+  - Generate the metadata confirmation (Step-a) and the agenda goals confirmation (Step-b) messages.
+  - Paste this content below the **### Engagement Goals Confirmation Message ###** section of the message.
 
 - **Some Don'ts:**
   - Your responsibility ends with the extraction of metadata and agenda goals from the meeting notes.
@@ -405,47 +381,6 @@ def user_info(state: State):
 builder.add_node("fetch_user_info", user_info)
 builder.add_edge(START, "fetch_user_info")
 
-def prompt_template(state: State) -> dict:
-    print("Setting update_prompt_template_node")
-    
-    assistant_response = None
-    # Iterate backwards over messages to find the desired assistant response
-    for msg in reversed(state["messages"]):
-        if hasattr(msg, "content") and "Type of Engagement:" in msg.content:
-            assistant_response = msg.content
-            break
-    
-    if assistant_response:
-        try:
-            part = assistant_response.split("Type of Engagement:")[1].strip()
-            engagement_inferred = part.split("(")[0].strip()
-            state["engagement_type"] = engagement_inferred
-            print(f"Extracted engagement type: {engagement_inferred}")
-            
-            # Define valid engagement types
-            valid_types = {"BUSINESS_ENVISIONING", "SOLUTION_ENVISIONING", "ADS", 
-                          "RAPID_PROTOTYPE", "HACKATHON", "CONSULT"}
-            
-            # Find the first matching valid type in the string
-            engagement_type = next((t for t in valid_types if t in engagement_inferred), "SOLUTION_ENVISIONING")
-            state["engagement_type"] = engagement_type
-        except Exception:
-            state["engagement_type"] = "SOLUTION_ENVISIONING"  # Fallback default
-    else:
-        state["engagement_type"] = "SOLUTION_ENVISIONING"  # Default if not found
-    
-    if state.get("engagement_type"):
-        engagement_type = state["engagement_type"]
-        template_result = set_prompt_template(engagement_type)
-        state["prompt_template"] = template_result["prompt_template"]
-        print(f"Updated prompt_template for engagement type {engagement_type}")
-    else:
-        print("engagement_type not found in state; cannot update prompt_template")
-    
-    return {"prompt_template": state.get("prompt_template", None)}
-
-
-builder.add_node("set_prompt_template", prompt_template)
 
 # -------------------------------
 # Nodes for Notes Extraction
@@ -456,7 +391,6 @@ builder.add_node(
 )
 builder.add_node("notes_extraction", Assistant(notes_extractor_runnable))
 builder.add_edge("enter_notes_extraction", "notes_extraction")
-builder.add_edge("set_prompt_template", "leave_skill")
 
 
 def route_notes_extraction(state: State):
@@ -466,10 +400,7 @@ def route_notes_extraction(state: State):
     tool_calls = state["messages"][-1].tool_calls
     did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
     if did_cancel:
-        if "prompt_template" in state and state["prompt_template"]:
-            return "leave_skill"
-        else:
-            return "set_prompt_template"
+        return "leave_skill"
     # safe_toolnames = [
     #     t.name if hasattr(t, "name") else t.__name__ for t in notes_extraction_tools
     # ]
@@ -478,13 +409,17 @@ def route_notes_extraction(state: State):
     return None
 
 
-
+# builder.add_node(
+#     "notes_extraction_tools",
+#     create_tool_node_with_fallback(notes_extraction_tools),
+# )
+# builder.add_edge("input_validator_tools", "notes_extraction")
 
 
 builder.add_conditional_edges(
     "notes_extraction",
     route_notes_extraction,
-    ["set_prompt_template","leave_skill", END],
+    ["leave_skill", END],
 )
 
 
@@ -556,7 +491,6 @@ def route_to_workflow(
 
 
 builder.add_conditional_edges("fetch_user_info", route_to_workflow)
-
 
 memory = MemorySaver()
 graph = builder.compile(checkpointer=memory)
