@@ -18,3 +18,4 @@ websockets
 botbuilder-core 
 botbuilder-dialogs 
 botbuilder-schema
+azure-storage-blob

@@ -22,3 +22,7 @@ class DefaultConfig:
     az_application_insights_key=os.getenv("az_application_insights_key")
     az_assistant_id = os.getenv("az_assistant_id")
     file_ids = os.getenv("file_ids", "").split(",") #comma separated list of file ids,corresponding to the .csv files uploaded to Assistants API
+    
+    az_storage_account_name = os.getenv("az_blob_storage_account_name")
+    az_storage_account_key = os.getenv("az_blob_storage_key")    
+    az_storage_container_name = os.getenv("az_blob_container_name")

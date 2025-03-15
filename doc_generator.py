@@ -7,7 +7,7 @@ from config import DefaultConfig
 from langchain_core.runnables import RunnableConfig
 import time
 import json
-
+from azure.storage.blob import BlobServiceClient
 
 user_prompt_prefix = """
 Use the document format 'Innovation Hub Agenda Format.docx' available with you. Follow the instructions below to add the markdown content under [Agenda for Innovation Hub Session] below into the document. 
@@ -75,15 +75,70 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
 
         # Use this when streaming is not required
         messages_json = json.loads(messages.model_dump_json())
-        # print("response messages_json>\n", messages_json)
-
-        for item in messages_json["data"]:
-            # Check the content array
-            for content in item["content"]:
-                # If there is text in the content array, print it
+        print("response messages_json>\n", messages_json)
+        l_file_id = None
+        l_file_name = None
+        
+        # Parse the messages_json to extract file_id and filename from text annotations starting with "sandbox:/mnt"
+        for item in messages_json.get("data", []):
+            for content in item.get("content", []):
                 if "text" in content:
-                    response = content["text"]["value"] + "\n"
+                    annotations = content["text"].get("annotations", [])
+                    for annotation in annotations:
+                        if annotation.get("type") == "file_path":
+                            file_path_str = annotation.get("text", "")
+                            if file_path_str.startswith("sandbox:/mnt"):
+                                l_file_id = annotation.get("file_path", {}).get("file_id")
+                                l_file_name = os.path.basename(file_path_str)
+                                print("Extracted file_id:", l_file_id)
+                                print("Extracted file_name:", l_file_name)
+                                break
+                    else:
+                        continue
+                    break
+            else:
+                continue
             break
+
+        doc_data = client.files.content(l_file_id)
+        doc_data_bytes = doc_data.read()
+        
+        blob_account_name = l_config.az_storage_account_name
+        blob_account_key = l_config.az_storage_account_key
+        blob_container_name = l_config.az_storage_container_name
+        
+        connection_string = f"DefaultEndpointsProtocol=https;AccountName={blob_account_name};AccountKey={blob_account_key};EndpointSuffix=core.windows.net"
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        container_client = blob_service_client.get_container_client(blob_container_name)
+
+        try:
+            container_client.upload_blob(name=l_file_name, data=doc_data_bytes, overwrite=True)
+            print(f"Uploaded document '{l_file_name}' to blob container '{blob_container_name}' successfully.")
+            blob_client = container_client.get_blob_client(l_file_name)
+            blob_url = blob_client.url
+            print(f"Blob URL: {blob_url}")
+            # response = blob_url  # assign the blob url to response
+            response = f'The Word document with the details of the Agenda has been created. Please access it from the url here. <a href="{blob_url}" target="_blank">{blob_url}</a>'
+        except Exception as upload_error:
+            print(f"Failed to upload document: {upload_error}")
+            response = f'The Word document with the details of the Agenda has been created. However, there was an error while uploading the document to the blob storage. Please try again later.'
+        # for item in messages_json["data"]:
+        #     # Check the content array
+        #     for content in item["content"]:
+        #         # If there is text in the content array, print it
+        #         if "text" in content:
+        #             response = content["text"]["value"] + "\n"
+        #     break
+
+        # for item in messages_json["data"]:
+        #     # Check the content array
+        #     for content in item["content"]:
+        #         # If there is text in the content array, print it
+        #         if "text" in content:
+        #             l_file_id = content["file_id"] + "\n"
+        #     break
+        # doc_data = client.files.content(l_file_id)
+        # doc_data_bytes = doc_data.read()
     except Exception as e:
         print(f"Error occurred: {str(e)}")
         print("Traceback:")

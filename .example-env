@@ -10,3 +10,7 @@ file_ids = "assistant-VCKezN4fEWVPpuL5AWNzH7"
 
 API_VERSION="2023-08-01-preview"
 API_TYPE="azure"
+
+az_blob_storage_account_name="yourstorageaccountname"
+az_blob_storage_key="storagekey"
+az_blob_container_name="agenda-docs"
