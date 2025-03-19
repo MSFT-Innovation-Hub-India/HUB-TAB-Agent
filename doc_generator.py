@@ -30,7 +30,7 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         configuration = config.get("configurable", {})
         l_thread_id = configuration.get("asst_thread_id", None)
         if not l_thread_id:
-            raise ValueError("active thread available in the Assistants API Session.")
+            raise ValueError("active thread not available in the Assistants API Session.")
         response = ""
 
         l_config = DefaultConfig()
