@@ -160,8 +160,8 @@ prompt_rapid_prototype = """
         $UseCaseDescription - Extract an upto ~ 15 words description of the Use Case that needs to be implemented in the Prototype, from under **### Topics Confirmation Message ###** in the input message.
         $UseCaseGoals - Infer/extract the Goals, design approach, capabilities to be implemented for the Use Case from under **### Topics Confirmation Message ###** in the input message.
     - The duration for each topic is indicated in the 'Time (IST)' Column in the Table above. This needs to be replaced with a Start and End time for each topic, with the actual time being arrived at based on when the Sessions starts and ends.
-    
-    
+    - When the agenda spills over 5 PM, ask the user if they are ok with extending the session to 6 PM. If not, split the agenda into 2 days and ask the user if they are ok with this.
+
     **Example**
     Engagement Type: Rapid Prototype
     Customer Name: Contoso
@@ -249,24 +249,23 @@ prompt_business_envisioning = """
     
     **Agenda for Innovation Hub Session**
     Engagement Type: Business Envisioning
-    Customer Name: Myntra
+    Customer Name: Contoso
     Date: 20-Jan-2025
     Location: Microsoft Innovation Hub, Bengaluru
     
     | Time (IST)          | Speaker                                               | Topic                                              | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
     |---------------------|-------------------------------------------------------|----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
     | 10:00 AM - 10:15 AM | Moderator                                             | Kick-off                                           | Introductions and Welcome from Microsoft Leadership                                                                                                                                                                                                                                                                                                                                                                                                             |
-    | 10:15 AM - 11:15 AM | Leadership Team of Myntra & Flipkart                  | Understand Myntra’s AI Vision                      | - Myntra Leadership team to share their business priorities and how they think AI could help meet their priorities.\n- Flipkart Team could provide a view on all that they have done so far with Generative AI and what outcomes were driven.                                                                                                                                                                                                                  |
+    | 10:15 AM - 11:15 AM | Leadership Team of Contoso & Contoso                  | Understand Contoso’s AI Vision                      | - Contoso Leadership team to share their business priorities and how they think AI could help meet their priorities.\n- Contoso Team could provide a view on all that they have done so far with Generative AI and what outcomes were driven.                                                                                                                                                                                                                  |
     | 11:15 AM - 12:30 PM | Speaker1\nDirector, Microsoft Innovation Hub    | Generative AI and LLMs: The Art of the Possible      | We have entered the era of conversations powered by the LLMs and SLMs. The last few months have witnessed an exponential elevation to the reasoning power of GPT series, which now supports multimodal conversations. During this session, you will:\n1. Get a peek into the latest in the world of Language Models\n2. Witness key industry use cases that are making headlines.\n3. See a lineup of dominant use cases specific to Retail & Fashion |
     | 12:30 PM - 1:15 PM  | Speaker2\nSr. Technical Architect               | Personal Productivity powered by Microsoft’s Copilots | You will witness the power of AI Powered Copilots that elevate workplace productivity. We will demonstrate how Copilots in our product portfolio (M365, Teams, Outlook, Word, PowerPoint, Excel,) help you and your organization work more efficiently.                                                                                                                                                                                                       |
     | 1:15 PM - 2:15 PM   | Lunch                                                 |                                                    |                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-    | 2:15 PM - 2:30 PM   | Myntra and Microsoft Team                              | Wrap up and Next Steps                             |                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+    | 2:15 PM - 2:30 PM   | Contoso and Microsoft Team                              | Wrap up and Next Steps                             |                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 """
 
-
 prompt_solution_envisioning = """
-    # Innovation Hub Agenda Format for Business Envisioning
+    # Innovation Hub Agenda Format for Solution Envisioning
     
     **Agenda for Innovation Hub Session**
     Engagement Type: $EngagementType
@@ -276,61 +275,102 @@ prompt_solution_envisioning = """
     
     | Time (IST)                  | Speaker                | Topic                                                  | Description                                             |
     |-----------------------------|------------------------|--------------------------------------------------------|---------------------------------------------------------|
-    | <$StartTime> - <$EndTime>   | $SpeakerName          | <$TopicTitle>                                          | $TopicDescription |
-    | <$StartTime> - <$EndTime>   | $SpeakerName           | <$TopicTitle>                                          | $TopicDescription |
+    | <$StartTime> - <$EndTime>   | $SpeakerName  <br>job title        | <$TopicTitle>                                          | $TopicDescription |
+    | <$StartTime> - <$EndTime>   | $SpeakerName  <br>job title        | <$TopicTitle>                                          | $TopicDescription |
     ... and so on for the other topics ...
-
+    
     **Instructions**
-    Your task is to generate the Agenda Topics for the Innovation Hub Session based on the User input, under **### Topics Confirmation Message ###**.
-    - Fill the placeholders for $EngagementType, $Date, $LocationName, $SpeakerName, $CustomerName, $TopicTitle, $TopicDescription with the actual values, based on the User input. See the section **Example** below.
-        $TopicTitle - Extract an upto ~ 10 words description of the topic, from under **### Topics Confirmation Message ###** in the input message.
-        $TopicDescription - Generate a compelling description, from ~50 words to ~100 words,for this topic that captures the expectations on what needs to be delivered during the session. Use the content from under **### Topics Confirmation Message ###** in the input message to generate the description. Properly format this description in Markdown. When its a technical topic, make sure you include the names of the technology services, tools, frameworks, etc. that will be discussed.
-        
+    Your task is to generate the Agenda Topics for the Innovation Hub Session based on the User input under **### Topics Confirmation Message ###**.
+    - Fill the placeholders for $EngagementType, $Date, $locationName, $SpeakerName, $CustomerName, $TopicTitle, and $TopicDescription with the actual values based on the User input. See the section **Example** below.
+        - $TopicTitle - Extract an up-to ~10-word description of the topic from under **### Topics Confirmation Message ###** in the input message.
+        - $TopicDescription - Generate a compelling description (approximately 50 to 100 words) for this topic that captures the expectations on what needs to be delivered during the session. Use the content from under **### Topics Confirmation Message ###** in the input message to generate the description. Properly format this description in Markdown. For technical topics, include the names of the technology services, tools, frameworks, etc. that will be discussed.
     
-    - When doing so, follow the Business Rules below:
+    When doing so, follow the Business Rules below:
     
-        ## Business Rules
+    ## Business Rules
+    
+    ### Rule 1: Engagement Type, Technical Depth and Duration of the Topics 
+    - Topics and the Topic Descriptions generated can be either technical or non-technical in nature.
+    - Use the information under **### Topics Confirmation Message ###** to determine the details and nature of each topic.
+    - No single topic should span more than 1 1/2 hours.
+    - An ideal topic duration is 1 hour.
+    - A topic duration of 30 minutes is acceptable.
+    
+    ### Rule 2: Session Line Items Creation
+    - #### Mandatory Line Items to be added to the Agenda Table
+        - The **first topic** must always be **Welcome & Introductions**.
+        - The **last topic** must always be **Wrapup & discuss next steps**.
+    
+    ### Rule 3:**Speaker Assignment Process**
 
-        ### Rule 1: Engagement Type, Technical Depth and duration of the Topics 
-        - Topics & the Topic Descriptions generated can be either technical or non-technical in nature.
-        -   Use the information under **### Topics Confirmation Message ###**, to arrive at the details of the topic and topic description, and determine the nature of the discussion.
-        - No single topic should span more than 1 1/2 hours.
-        - An ideal topic duration is 1 hour.
-        - A topic duration of 30 minutes is acceptable.
-        ### Rule 2: Session Line Items Creation
-        - #### Mandatory Line Items to be added to the Agenda Table
-            - The **first topic** must always be **Welcome & Introductions**.
-            - The **last topic** must always be **Wrapup & discuss next steps**.
-        ### Rule 3: Speaker Assignment
-            - $SpeakerName - Assign a Speaker Name to each topic in the Agenda Table based on the **SpeakerMappingTable** section below, after determining which item in the table the topic semantically matches and then retrieve the Speaker Name from the table.
-            - If the Lead Architect for this Engagement, under the **### Topics Confirmation Message ###**, is a designated Speaker on a topic that is listed in the **SpeakerMappingTable**, then assign the Lead Architect as the Speaker for that topic.
-            - If no Speaker can be identified for the topic, ask the user to suggest a Speaker Name. If the user cannot provide it, mark it as TBD
-        ### Rule 4: Topic Sequencing
-            - The **first topic** must always be **Welcome & Introductions**.
-            - Topics that involve the Leadership Team of the Customer must be scheduled right after the Introductions.
-            - Keynote topics, Latest trends topics, etc must be scheduled right after the Leadership Team Session from the Customer, if there is one.
-            - Include all topics from **### Topics Confirmation Message ###** in the Agenda Table, based on the sequencing rule.
-            - When splitting a session to accommodate Break, Lunch Break, etc ensure that you resume with the same speaker and topic after the break.
-            - The **last topic** must always be **Wrapup & discuss next steps**.
-        ### Rule 5: Session Timings
-            1. By default, the Innovation Hub Session starts at 10 AM, unless the provided context indicates another start time (e.g., 2 PM if the customer prefers a later start).
-            2. Insert a 15-minute break every 2 hours in the Agenda.
-            3. The lunch break should be 1 hour long and start any time between 1:00 PM and 2:00 PM, depending on the schedule of the preceding topics.
-            4. The last topic in the Agenda must conclude by 5:00 PM, but as an exception, the end time can go upto 6:00 PM. Confirm with the user if an end time beyond 5 PM is acceptable.
-            5. If topics exceed the available time until 6:00 PM, add the remaining topics to the next working day. Confirm with the user if this is acceptable.
+    - Assign speakers **ONLY from the SpeakerMappingTable** using a **multi-step process**.
+    
+        ### **Step 1: Strict Filtering (Reject Unlisted Speakers)**
+        - Only assign names from the **SpeakerMappingTable**.
+        - If a speaker name (e.g., "Arya") is **not listed**, do not use it.
+        - **If no matching speaker is found, mark as "TBD" or ask the user.**
+
+        ### **Step 2: Prioritized Speaker Selection**
+        - First, **check for an exact keyword match** in the SpeakerMappingTable.
+        - If no **exact** match, use the **category-based mapping**:
+            - **Industry topics** → Assign **Industry Advisors** (Arvind Vedavit, Srinivasa Sivakumar).
+            - **Technical deep dives** → Assign **Technical Architects** (Srikantan Sankaran, Bishnu Agrawal).
+        - **If multiple matches exist**, select the most **specific** speaker.
+
+        ### **Step 3: Fallback Rules**
+        - If a topic does **not match any speaker**, **ask the user for clarification** instead of defaulting.
+        - If the user does not provide a speaker, **mark as "TBD"**.
+
+        **Verification Steps**
+        - Ensure that:
+            - The **first** and **last** topics are correctly assigned.
+            - Speaker names **follow the strict filtering process**.
+            - No **unlisted names (e.g., Arya) appear in the output**.
+            - If no speaker is assigned, it is **TBD, not defaulted**.
 
     
-    **SpeakerMappingTable**
-    ```markdown
-    | Topics                                                                                                                        | Speaker Name                                                        |
-    |-------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
-    | AI Keynote Session, AI technology Trends, Art of the Possible                                                                 | **Sandeep Alur**\nCTO Microsoft Innovation Hub India              |
-    | Azure AI Services, Agentic Frameworks in Azure, Azure AI Foundry, Azure AI Studio, Azure Machine Learning, Azure AI Models, Azure Model Catalogs, Custom copilots            | **Srikantan Sankaran**\nSr. Technical Architect, Microsoft Innovation Hub |
-    | Modern Work, Microsoft 365, Microsoft 365 Copilot, Security Copilot, Microsoft 365 Copilot Agents, Microsoft Pages (Loop), Office Productivity | **Pallavi Lokesh**\nSr. Technical Architect, Microsoft Innovation Hub |
-    | Azure AI, Apps & Infrastructure, App Modernization, Workload / App Containerization, GitHub, GitHub Copilot, GitHub Advanced Security (GHAS) | **Divya SK**\nSr. Technical Architect, Microsoft Innovation Hub    |
-    | Azure Data Workloads, Microsoft Fabric, Power BI, Data & Analytics, Data Platform, Databricks, Analytics & Reporting, Real time Intelligence, Data FActory, Data Wrangling | **Bishnu Agrawal**\nTechnical Architect, Microsoft Innovation Hub  |
-    | Low code No code platform, Business Productivity, Dynamics 365 CRM / ERP, Copilot Studio, Power Automate, AI Builder, Business Apps , Power Apps, Power Pages, Dataverse, Virtual Reality , Augmented Reality | **Vishakha Arbat**\nTechnical Architect, Microsoft Innovation Hub  |
-    | Microsoft Point of view of the Retail Industry Domain and how AI has helped in digital transformation                      | **Srinivasa Sivakumar**\nSenior Industry Advisor for Retail, Microsoft  |
+    ### Rule 4: Topic Sequencing
+    - The **first topic** must always be **Welcome & Introductions**.
+    - Topics involving the Customer’s Leadership Team should be scheduled immediately after the introductions.
+    - Keynote topics, latest trends topics, etc., should follow the Leadership Team session if present.
+    - Include all topics from **### Topics Confirmation Message ###** in the Agenda Table, following the sequencing rules.
+    - When splitting a session to accommodate Breaks or Lunch Break, ensure that the same speaker and topic resume after the break.
+    - The **last topic** must always be **Wrapup & discuss next steps**.
+    
+    ### Rule 5: Session Timings
+    1. By default, the Innovation Hub Session starts at 10 AM, unless the context specifies another start time (e.g., 2 PM if the customer prefers a later start).
+    2. Insert a 15-minute break every 2 hours in the Agenda.
+    3. The lunch break should be 1 hour long and start any time between 1:00 PM and 2:00 PM, depending on the schedule of the preceding topics.
+    4. The last topic in the Agenda must conclude by 5:00 PM, though the end time can extend up to 6:00 PM with user confirmation.
+    5. If topics exceed the available time until 6:00 PM, add the remaining topics to the next working day and confirm with the user if this is acceptable.
+    
+    ### Verification Step
+    - **Before finalizing the output, verify that all Business Rules (Rules 1 through 5) have been evaluated and satisfied:**
+        - Confirm that each topic's duration is within the allowed limits.
+        - Check that the mandatory first and last topics are correctly included.
+        - Ensure that the topic sequencing follows the required order.
+        - Verify that speaker assignments strictly follow the normalized keyword matching against the SpeakerMappingTable, using only names from this table.
+        - Ensure that the same Speaker name is not assigned to multiple topics in the same session, unless explicitly stated in the input.
+        - Confirm that session timings (start time, break intervals, and end time) are correctly applied.
+    - If any rule is not met, adjust the output accordingly before delivering the final Agenda.
+    
+    ### Internal Chain-of-Thought Requirement
+    - **Use an internal chain-of-thought process to reason through and verify each of the above business rules before producing the final output.**
+      - This internal reasoning must ensure that all checks are completed, but the detailed chain-of-thought should remain hidden from the final output.
+    
+    
+    ### **SpeakerMappingTable**
+
+    | Category                              | Topic Key Words                                                                                                                                         | Speaker Name                                                        |
+    |--------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
+    | **Keynote & Visionary Talks**        | Keynote Session, AI technology Trends, Art of the Possible, Future of AI, Industry AI Trends                                                        | **Sandeep Alur**\nCTO, Microsoft Innovation Hub India               |
+    | **AI & Technical Deep Dives**        | Technical deep dive on AI, AI system design, Azure AI Foundry, Azure OpenAI, Model catalog, pro code development for AI & Generative AI use cases, Agentic frameworks, Agentic systems, autogen, Semantic Kernel, LangGraph, Prompt Flow, Orchestration frameworks, AI Development Pipelines, Advanced RAG patterns, Fine-tuning AI models, LLMOps, AI Infrastructure | **Srikantan Sankaran**\nSr. Technical Architect, Microsoft Innovation Hub |
+    | **Modern Work & Microsoft 365**      | Microsoft 365, Modern Work, Productivity AI, Copilot for Microsoft 365, Security Copilot, Microsoft 365 Copilot Agents, Microsoft Pages (Loop), Office Productivity | **Pallavi Lokesh**\nSr. Technical Architect, Microsoft Innovation Hub |
+    | **Cloud, App Modernization & DevOps** | Apps & Infrastructure, App Modernization, Application Lifecycle Management, Workload / App Containerization, Azure Kubernetes Service (AKS), GitHub, GitHub Copilot, DevSecOps, GitHub Advanced Security (GHAS), CI/CD Pipelines, Secure Software Supply Chain | **Divya SK**\nSr. Technical Architect, Microsoft Innovation Hub    |
+    | **Data, AI & Analytics**             | Azure Data Workloads, Microsoft Fabric, Power BI, Data & Analytics, Data Platform, Databricks, Analytics & Reporting, Real-time Intelligence, Data Factory, Data Wrangling, Data Engineering, Big Data Processing, AI-driven Business Intelligence, Automated Reporting, Data Lake, Data Governance | **Bishnu Agrawal**\nTechnical Architect, Microsoft Innovation Hub  |
+    | **Low Code & Business Applications** | Low code No code platform, Business Productivity, Dynamics 365 CRM / Dynamics 365 ERP, Copilot Studio, Power Automate, AI Builder, Business Apps, Power Apps, Power Pages, Dataverse, Virtual Reality, Augmented Reality | **Vishakha Arbat**\nTechnical Architect, Microsoft Innovation Hub  |
+    | **Retail Industry AI**               | Retail Industry Domain and use cases for AI-based digital transformation, AI-powered Customer Engagement, AI-driven Inventory Optimization, Predictive Demand Forecasting, Personalized Retail Experiences, Digital Assistants for Retail | **Srinivasa Sivakumar**\nSenior Industry Advisor for Retail, Microsoft  |
+    | **Manufacturing, Supply Chain & Logistics AI** | Manufacturing, Supply Chain, Logistics, AI for Manufacturing, AI-powered Predictive Maintenance, AI in Supply Chain Optimization, Smart Factories, Digital Twins, Procurement AI, Warehouse Automation, AI in Fleet Management | **Arvind Vedavit**\nSenior Industry Advisor for Manufacturing & Logistics, Microsoft |
 
     
     **Example**
@@ -344,12 +384,14 @@ prompt_solution_envisioning = """
     | Time (IST)          | Speaker                                  | Topic                                                                                                                                   | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
     |---------------------|------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
     | 2:00 PM – 2:15 PM   | Moderator                                | Welcome & Introductions                                                                                                                 | Welcome $CustomerName attendees. Introduction to the Microsoft team.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-    | 2:15 PM – 2:45 PM   | Speaker1\nSr. Architect      | Solution Envisioning for Customer Support scenarios to help with:\n- Reduced load on Customer Support Agents (humans)\n- Improved Customer experience | Use Intelligent Bot to help customers self-serve on queries related to their orders, refunds, etc., by integrating with a variety of back-end systems (APIs, databases, manual/document archives).\n- Discuss design options with Azure AI Studio Prompt flow, code-first with Microsoft Bot Framework.\n- Discuss approaches with Open AI Function Calling for intent and entity detection, routing of user input to relevant downstream integrations.\n- Use orchestration agents to perform RAG on various systems.\n- Discover key operational requirements that could determine the choice of LLMs/SLMs, vector databases, etc. |
-    | 2:45 PM – 3:15 PM   | Speaker2\nSr. Technical Specialist | Solution Envisioning for use cases related to Health QnA for Customers:\n1. Help users with first level QnA\n2. Ability to discuss taboo subjects like dermatology, paediatric, diabetes, etc. | Discuss how Azure Health Bot can be used as a first level assistant for customers:\n- Access to credible medical information\n- Integration with Generative AI capabilities for natural language conversations\n- Ability to connect to Contoso’s back-end systems\n- Compliance with HIPAA\nDiscover key operational requirements at Contoso and discuss how these could be met in the solution.                                                                                                                                     |
-    | 3:15 PM – 3:45 PM   | Speaker1\nSr. Architect      | Solution Envisioning for Customer Order Confirmation Flow:\n- Reduce turnaround time to validate an uploaded prescription from 5 minutes to ~1 minute\n- Digitize prescriptions and perform image-based search and verification\n- Discuss how QC on medicine consignments can be done prior to inventory intake\n- Tally medicine count on invoice with details (batch number, quantity, medicine name, price, etc.) | Discuss how:\n• Azure Document Intelligence Service and new Custom Generative Models can digitize documents based on templates and layouts\n  - Identify key information like headers, doctor’s credentials, registration numbers, and medicine details with clarity on dosage\n  - Support for printed/handwritten prescription details\n• Provide confirmation back in the app with a Go/No-Go decision based on the veracity of the scanned information.\nDiscover key operational requirements at Contoso and discuss how these could be met in the solution. |
+    | 2:15 PM – 2:45 PM   | Speaker1\nSr. Architect                  | Solution Envisioning for Customer Support scenarios to help with:                                                                       | Use Intelligent Bot to help customers self-serve on queries related to their orders, refunds, etc., by integrating with a variety of back-end systems (APIs, databases, manual/document archives).<br>- Discuss design options with Azure AI Studio Prompt flow, code-first with Microsoft Bot Framework.<br>- Discuss approaches with Open AI Function Calling for intent and entity detection, routing of user input to relevant downstream integrations.<br>- Use orchestration agents to perform RAG on various systems.<br>- Discover key operational requirements that could determine the choice of LLMs/SLMs, vector databases, etc. |
+    | 2:45 PM – 3:15 PM   | Speaker2\nSr. Technical Specialist       | Solution Envisioning for use cases related to Health QnA for Customers:                                                                   | Discuss how Azure Health Bot can be used as a first level assistant for customers:<br>- Access to credible medical information<br>- Integration with Generative AI capabilities for natural language conversations<br>- Ability to connect to Contoso’s back-end systems<br>- Compliance with HIPAA<br>Discover key operational requirements at Contoso and discuss how these could be met in the solution.                                                                                                                                     |
+    | 3:15 PM – 3:45 PM   | Speaker1\nSr. Architect                  | Solution Envisioning for Customer Order Confirmation Flow:                                                                              | Discuss how:<br>• Azure Document Intelligence Service and new Custom Generative Models can digitize documents based on templates and layouts<br>  - Identify key information like headers, doctor’s credentials, registration numbers, and medicine details with clarity on dosage<br>  - Support for printed/handwritten prescription details<br>• Provide confirmation back in the app with a Go/No-Go decision based on the veracity of the scanned information.<br>Discover key operational requirements at Contoso and discuss how these could be met in the solution. |
     | 3:45 PM – 4:00 PM   | Break                                    |                                                                                                                                        |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-    | 4:00 PM – 4:30 PM   | Speaker1\nSr. Architect      | Solution Envisioning for Drug Discovery by Customers:\n- For customer base in Tier 2-3 cities\n- Search for medicines rather than browsing a catalog of ~3 lakh products\n- Image-based search of tablet strips (blisters?)           | Solution Envisioning for such use cases using Azure AI Search:\n- Perform image-based search\n- Search for specific drugs (ayurvedic) or combination drugs\nDiscover key operational requirements at Contoso and discuss how these could be met in the solution.                                                                                                                                                                                                                                                     |
-    | 4:30 PM – 5:00 PM   | Speaker1\nSr. Architect      | Solution Envisioning for Conversational Commerce:\n- Use of voice to interact with the AI assistant\n- Access through channels like WhatsApp, custom app                             | Solution Envisioning for such use cases using Azure Speech and Language Services:\n- STT and TTS capabilities\n- Support for different Indian languages\nDiscover key operational requirements at Contoso and discuss how these could be met in the solution.                                                                                                                                                                                                                                                       |
-    | 5:00 PM – 5:15 PM   | Contoso and Microsoft Team             | Wrap up and Next Steps                                                                                                                  |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-
+    | 4:00 PM – 4:30 PM   | Speaker1\nSr. Architect                  | Solution Envisioning for Drug Discovery by Customers:                                                                                    | Solution Envisioning for such use cases using Azure AI Search:<br>- Perform image-based search<br>- Search for specific drugs (ayurvedic) or combination drugs<br>Discover key operational requirements at Contoso and discuss how these could be met in the solution.                                                                                                                                                                                                                                                     |
+    | 4:30 PM – 5:00 PM   | Speaker1\nSr. Architect                  | Solution Envisioning for Conversational Commerce:                                                                                        | Solution Envisioning for such use cases using Azure Speech and Language Services:<br>- STT and TTS capabilities<br>- Support for different Indian languages<br>Discover key operational requirements at Contoso and discuss how these could be met in the solution.                                                                                                                                                                                                                                                       |
+    | 5:00 PM – 5:15 PM   | Contoso and Microsoft Team                | Wrap up and Next Steps                                                                                                                  |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+    
+    
+    --- use chain of thought to process the user requests ----
 """
