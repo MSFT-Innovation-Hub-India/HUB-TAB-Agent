@@ -193,8 +193,8 @@ prompt_business_envisioning = """
     
     | Time (IST)                  | Speaker                | Topic                                                  | Description                                             |
     |-----------------------------|------------------------|--------------------------------------------------------|---------------------------------------------------------|
-    | <$StartTime> - <$EndTime>   |  $SpeakerName          | <$TopicTitle>                                          | $TopicDescription |
-    | <$StartTime> - <$EndTime>   | $SpeakerName           | <$TopicTitle>                                          | $TopicDescription |
+    | <$StartTime> - <$EndTime>   |  $SpeakerName <br>job title         | <$TopicTitle>                                          | $TopicDescription |
+    | <$StartTime> - <$EndTime>   | $SpeakerName <br>job title          | <$TopicTitle>                                          | $TopicDescription |
     ... and so on for the other topics ...
 
     **Instructions**
@@ -217,10 +217,33 @@ prompt_business_envisioning = """
         - #### Mandatory Line Items to be added to the Agenda Table
             - The **first topic** must always be **Welcome & Introductions**.
             - The **last topic** must always be **Wrapup & discuss next steps**.
-        ### Rule 3: Speaker Assignment
-            - $SpeakerName - Assign a Speaker Name to each topic in the Agenda Table based on the **SpeakerMappingTable** section below, after determining which item in the table the topic semantically matches and then retrieve the Speaker Name from the table.
-            - If the Lead Architect for this Engagement, under the **### Topics Confirmation Message ###**, is a designated Speaker on a topic that is listed in the **SpeakerMappingTable**, then assign the Lead Architect as the Speaker for that topic.
-            - If no Speaker can be identified for the topic, ask the user to suggest a Speaker Name. If the user cannot provide it, mark it as TBD
+
+        ### Rule 3:**Speaker Assignment Process**
+        - Assign speakers **ONLY from the SpeakerMappingTable** using a **multi-step process**.
+    
+            ### **Step 1: Strict Filtering (Reject Unlisted Speakers)**
+            - Only assign names from the **SpeakerMappingTable**.
+            - If a speaker name (e.g., "Arya") is **not listed**, do not use it.
+            - **If no matching speaker is found, mark as "TBD" or ask the user.**
+
+            ### **Step 2: Prioritized Speaker Selection**
+            - First, **check for an exact keyword match** in the SpeakerMappingTable.
+            - If no **exact** match, use the **category-based mapping**:
+                - **Industry topics** → Assign **Industry Advisors** (Arvind Vedavit, Srinivasa Sivakumar).
+                - **Technical deep dives** → Assign **Technical Architects** (Srikantan Sankaran, Bishnu Agrawal).
+            - **If multiple matches exist**, select the most **specific** speaker.
+
+            ### **Step 3: Fallback Rules**
+            - If a topic does **not match any speaker**, **ask the user for clarification** instead of defaulting.
+            - If the user does not provide a speaker, **mark as "TBD"**.
+
+            **Verification Steps**
+            - Ensure that:
+                - The **first** and **last** topics are correctly assigned.
+                - Speaker names **follow the strict filtering process**.
+                - No **unlisted names (e.g., Arya) appear in the output**.
+                - If no speaker is assigned, it is **TBD, not defaulted**.
+
         ### Rule 4: Topic Sequencing
             - The **first topic** must always be **Welcome & Introductions**.
             - Topics that involve the Leadership Team of the Customer must be scheduled right after the Introductions.
@@ -235,16 +258,19 @@ prompt_business_envisioning = """
             5. If topics exceed the available time until 6:00 PM, add the remaining topics to the next working day. Confirm with the user if this is acceptable.
 
     
-    **SpeakerMappingTable**
-    ```markdown
-    | Topics                                                                                                                        | Speaker Name                                                        |
-    |-------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
-    | Azure AI Services, Agentic Frameworks in Azure, Azure AI Foundry, Azure AI Studio, Azure Machine Learning, Azure AI Models, Azure Model Catalogs, Custom copilots            | **Srikantan Sankaran**\nSr. Technical Architect, Microsoft Innovation Hub |
-    | Modern Work, Microsoft 365, Microsoft 365 Copilot, Security Copilot, Microsoft 365 Copilot Agents, Microsoft Pages (Loop), Office Productivity | **Pallavi Lokesh**\nSr. Technical Architect, Microsoft Innovation Hub |
-    | Azure AI, Apps & Infrastructure, App Modernization, Workload / App Containerization, GitHub, GitHub Copilot, GitHub Advanced Security (GHAS) | **Divya SK**\nSr. Technical Architect, Microsoft Innovation Hub    |
-    | Azure Data Workloads, Microsoft Fabric, Power BI, Data & Analytics, Data Platform, Databricks, Analytics & Reporting, Real time Intelligence, Data FActory, Data Wrangling | **Bishnu Agrawal**\nTechnical Architect, Microsoft Innovation Hub  |
-    | Low code No code platform, Business Productivity, Dynamics 365 CRM / ERP, Copilot Studio, Power Automate, AI Builder, Business Apps , Power Apps, Power Pages, Dataverse, Virtual Reality , Augmented Reality | **Vishakha Arbat**\nTechnical Architect, Microsoft Innovation Hub  |
-    
+    ### **SpeakerMappingTable**
+
+    | Category                              | Topic Key Words                                                                                                                                         | Speaker Name                                                        |
+    |--------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
+    | **Keynote & Visionary Talks**        | Keynote Session, AI technology Trends, Art of the Possible, Future of AI, Industry AI Trends                                                        | **Sandeep Alur**\nCTO, Microsoft Innovation Hub India               |
+    | **AI & Technical showcase & demos**        | Technical deep dive on AI, AI system design, Azure AI Foundry, Azure OpenAI, Model catalog, pro code development for AI & Generative AI use cases, Agentic frameworks, Agentic systems, autogen, Semantic Kernel, LangGraph, Prompt Flow, Orchestration frameworks, AI Development Pipelines, Advanced RAG patterns, Fine-tuning AI models, LLMOps, AI Infrastructure | **Srikantan Sankaran**\nSr. Technical Architect, Microsoft Innovation Hub |
+    | **Modern Work & Microsoft 365**      | Microsoft 365, Modern Work, Productivity AI, Copilot for Microsoft 365, Security Copilot, Microsoft 365 Copilot Agents, Microsoft Pages (Loop), Office Productivity | **Pallavi Lokesh**\nSr. Technical Architect, Microsoft Innovation Hub |
+    | **Cloud, App Modernization & DevOps** | Apps & Infrastructure, App Modernization, Application Lifecycle Management, Workload / App Containerization, Azure Kubernetes Service (AKS), GitHub, GitHub Copilot, DevSecOps, GitHub Advanced Security (GHAS), CI/CD Pipelines, Secure Software Supply Chain | **Divya SK**\nSr. Technical Architect, Microsoft Innovation Hub    |
+    | **Data, AI & Analytics**             | Azure Data Workloads, Microsoft Fabric, Power BI, Data & Analytics, Data Platform, Databricks, Analytics & Reporting, Real-time Intelligence, Data Factory, Data Wrangling, Data Engineering, Big Data Processing, AI-driven Business Intelligence, Automated Reporting, Data Lake, Data Governance | **Bishnu Agrawal**\nTechnical Architect, Microsoft Innovation Hub  |
+    | **Low Code & Business Applications** | Low code No code platform, Business Productivity, Dynamics 365 CRM / Dynamics 365 ERP, Copilot Studio, Power Automate, AI Builder, Business Apps, Power Apps, Power Pages, Dataverse, Virtual Reality, Augmented Reality | **Vishakha Arbat**\nTechnical Architect, Microsoft Innovation Hub  |
+    | **Retail Industry AI**               | Retail Industry Domain and use cases for AI-based digital transformation, AI-powered Customer Engagement, AI-driven Inventory Optimization, Predictive Demand Forecasting, Personalized Retail Experiences, Digital Assistants for Retail | **Srinivasa Sivakumar**\nSenior Industry Advisor for Retail, Microsoft  |
+    | **Manufacturing, Supply Chain & Logistics AI** | Manufacturing, Supply Chain, Logistics, AI for Manufacturing, AI-powered Predictive Maintenance, AI in Supply Chain Optimization, Smart Factories, Digital Twins, Procurement AI, Warehouse Automation, AI in Fleet Management | **Arvind Vedavit**\nSenior Industry Advisor for Manufacturing & Logistics, Microsoft |
+
     **Example**
     
     **Agenda for Innovation Hub Session**
@@ -261,6 +287,9 @@ prompt_business_envisioning = """
     | 12:30 PM - 1:15 PM  | Speaker2\nSr. Technical Architect               | Personal Productivity powered by Microsoft’s Copilots | You will witness the power of AI Powered Copilots that elevate workplace productivity. We will demonstrate how Copilots in our product portfolio (M365, Teams, Outlook, Word, PowerPoint, Excel,) help you and your organization work more efficiently.                                                                                                                                                                                                       |
     | 1:15 PM - 2:15 PM   | Lunch                                                 |                                                    |                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
     | 2:15 PM - 2:30 PM   | Contoso and Microsoft Team                              | Wrap up and Next Steps                             |                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+
+
+    --- use chain of thought to process the user requests ----
 
 """
 
@@ -327,7 +356,6 @@ prompt_solution_envisioning = """
             - Speaker names **follow the strict filtering process**.
             - No **unlisted names (e.g., Arya) appear in the output**.
             - If no speaker is assigned, it is **TBD, not defaulted**.
-
     
     ### Rule 4: Topic Sequencing
     - The **first topic** must always be **Welcome & Introductions**.
