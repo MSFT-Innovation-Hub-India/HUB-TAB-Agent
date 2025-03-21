@@ -13,6 +13,7 @@ import traceback
 from botbuilder.core import ActivityHandler, MessageFactory, TurnContext
 from botbuilder.schema import Activity, ActivityTypes, Attachment
 import json
+from datetime import datetime, timedelta, timezone
 
 class StateManagementBot(ActivityHandler):
 
@@ -75,7 +76,7 @@ class StateManagementBot(ActivityHandler):
             else:
                 # Prompt the user for their name.
                 await turn_context.send_activity(
-                    "I am your TA Buddy representing Microsoft innovation Hub, India. I can help you process Briefing call notes to produce Agenda documents. "
+                    "I am TA Buddy representing Microsoft innovation Hub, India. I can help you process Briefing call notes to produce Agenda documents. "
                     + "Can you help me with your name?"
                 )
 
@@ -83,9 +84,18 @@ class StateManagementBot(ActivityHandler):
                 conversation_data.prompted_for_user_name = True
         else:
             # Add message details to the conversation data.
-            conversation_data.timestamp = self.__datetime_from_utc_to_local(
-                turn_context.activity.timestamp
-            )
+            # Store the raw datetime for comparison
+            last_message_timestamp = conversation_data.timestamp
+            current_time = datetime.now(timezone.utc)
+            conversation_data.timestamp = current_time
+            print(f"Debug - Current time:{current_time}, and last message time: {last_message_timestamp}")
+            if last_message_timestamp and (current_time - last_message_timestamp) > timedelta(minutes=10):
+                print("Debug - Timestamp is older than 5 minutes, resetting conversation data.")
+                conversation_data.config = None
+            # else:
+            #     print("Debug - Timestamp is within 5 minutes, keeping conversation data.")
+                
+            
             conversation_data.channel_id = turn_context.activity.channel_id
             if conversation_data.config is None:
                 # Create a graph

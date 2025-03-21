@@ -201,6 +201,11 @@ notes_extractor_sys_prompt = """
         - If no explicit arrival time is provided or hinted at, default the start time to 10:00 AM.
         - If the notes indicate an afternoon arrival or provide evidence suggesting a different start time, use that information instead.
       - **Display the inferred value with reasoning if applicable.**
+      - **Important:** The extracted engagement date must be in the future relative to the current date (provided at runtime as {time}).
+        - **Conditional Check:**  
+          - Convert both the extracted engagement date and {time} into a comparable date format.
+          - If the extracted date is earlier than {time}, immediately prompt the user:
+            *"The extracted date appears to be in the past relative to {time}. Would you like to confirm this date or provide a new, future date?"*
     - **Target Audience:**
       - Format the names as "Name, Designation" (designation optional if not available) and indicate whether each stakeholder is from Technology or Business.
       - Group the stakeholders by Microsoft and Customer teams.
@@ -282,7 +287,7 @@ notes_extractor_sys_prompt = """
 
 notes_Extractor_Agent_prompt = ChatPromptTemplate(
     [
-        ("system", notes_extractor_sys_prompt),
+        ("system", notes_extractor_sys_prompt+"\nCurrent time: {time}."),
         ("placeholder", "{messages}"),
     ]
 ).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
