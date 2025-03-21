@@ -34,12 +34,19 @@ import traceback
 import uuid
 from IPython.display import display, Image
 
+import logging
+from opencensus.ext.azure.log_exporter import AzureLogHandler
+
 load_dotenv()
 az_openai_endpoint = os.getenv("az_openai_endpoint")
 az_openai_key = os.getenv("az_open_ai_key")
 az_openai_deployment_name = os.getenv("az_deployment_name")
 az_api_type = os.getenv("API_TYPE")
 az_openai_version = os.getenv("API_VERSION")
+
+logger = logging.getLogger(__name__)
+logger.addHandler(AzureLogHandler(connection_string=os.getenv("az_application_insights_key")))
+logger.setLevel(logging.DEBUG)
 
 llm = AzureChatOpenAI(
     azure_endpoint=az_openai_endpoint,
@@ -505,7 +512,7 @@ builder.add_node("fetch_user_info", user_info)
 builder.add_edge(START, "fetch_user_info")
 
 def prompt_template(state: State) -> dict:
-    print("Setting update_prompt_template_node")
+    logger.debug("Setting update_prompt_template_node")
     
     assistant_response = None
     # Iterate backwards over messages to find the desired assistant response
@@ -519,7 +526,7 @@ def prompt_template(state: State) -> dict:
             part = assistant_response.split("Type of Engagement:")[1].strip()
             engagement_inferred = part.split("(")[0].strip()
             state["engagement_type"] = engagement_inferred
-            print(f"Extracted engagement type: {engagement_inferred}")
+            logger.debug(f"Extracted engagement type: {engagement_inferred}")
             
             # Define valid engagement types
             valid_types = {"BUSINESS_ENVISIONING", "SOLUTION_ENVISIONING", "ADS", 
@@ -537,9 +544,9 @@ def prompt_template(state: State) -> dict:
         engagement_type = state["engagement_type"]
         template_result = set_prompt_template(engagement_type)
         state["prompt_template"] = template_result["prompt_template"]
-        print(f"Updated prompt_template for engagement type {engagement_type}")
+        logger.debug(f"Updated prompt_template for engagement type {engagement_type}")
     else:
-        print("engagement_type not found in state; cannot update prompt_template")
+        logger.debug("engagement_type not found in state; cannot update prompt_template")
     
     return {"prompt_template": state.get("prompt_template", None)}
 
@@ -566,7 +573,7 @@ def route_notes_extraction(state: State):
     did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
     if did_cancel:
         if "prompt_template" in state and state["prompt_template"]:
-            print("the prompt template is set, hence leaving the skill")
+            logger.debug("the prompt template is set, hence leaving the skill")
             return "leave_skill"
         else:
             return "set_prompt_template"
@@ -691,13 +698,13 @@ def route_primary_assistant(state: State):
     tool_calls = state["messages"][-1].tool_calls
     if tool_calls:
         if tool_calls[0]["name"] == ToNotesExtractor.__name__:
-            print("**** routing to enter_notes_extraction")
+            logger.debug("**** routing to enter_notes_extraction")
             return "enter_notes_extraction"
         if tool_calls[0]["name"] == ToAgendaCreator.__name__:
-            print("**** routing to agenda creation")
+            logger.debug("**** routing to agenda creation")
             return "enter_agenda_creation"
         if tool_calls[0]["name"] == ToDocumentGenerator.__name__:
-            print("**** routing to enter_document_generation")
+            logger.debug("**** routing to enter_document_generation")
             return "enter_document_generation"
     # If no tool calls are present, route to extract engagement type (if not already set)
     return None

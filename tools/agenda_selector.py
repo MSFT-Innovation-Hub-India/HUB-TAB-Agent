@@ -6,16 +6,22 @@ from config import DefaultConfig
 from langchain_core.runnables import RunnableConfig
 import time
 import json
+import logging
+from opencensus.ext.azure.log_exporter import AzureLogHandler
+
+logger = logging.getLogger(__name__)
+logger.addHandler(AzureLogHandler(connection_string=os.getenv("az_application_insights_key")))
+logger.setLevel(logging.DEBUG)
 
 def set_prompt_template(engagement_type: str) -> dict:
     """
     Based on the input engagement type, set the appropriate prompt template.
     """
     
-    print(f"-calling tool to set the Engagement Type to: {engagement_type}.........")
+    logger.debug(f"-calling tool to set the Engagement Type to: {engagement_type}.........")
     # print(f"Setting Engagement Type to: {engagement_type}.........")
     e_type=get_prompt_for_engagement_type(engagement_type)
-    print(f"Setting Engagement Type to: {e_type}.........")
+    logger.debug(f"Setting Engagement Type to: {e_type}.........")
     return {"prompt_template": e_type}
 
 def get_prompt_for_engagement_type(engagement_type: str) -> str:

@@ -14,8 +14,14 @@ from botbuilder.core import ActivityHandler, MessageFactory, TurnContext
 from botbuilder.schema import Activity, ActivityTypes, Attachment
 import json
 from datetime import datetime, timedelta, timezone
+import logging
+from opencensus.ext.azure.log_exporter import AzureLogHandler
+
 
 class StateManagementBot(ActivityHandler):
+    
+
+
 
     connection = None
     # assistant_id = "asst_FguPQz5y5prwRADEepQkwope"
@@ -51,6 +57,9 @@ class StateManagementBot(ActivityHandler):
             "ConversationData"
         )
         self.user_profile_accessor = self.user_state.create_property("UserProfile")
+        self.logger = logging.getLogger(__name__)
+        self.logger.addHandler(AzureLogHandler(connection_string=self.config.az_application_insights_key))
+        self.logger.setLevel(logging.DEBUG)
 
     async def on_message_activity(self, turn_context: TurnContext):
 
@@ -88,9 +97,9 @@ class StateManagementBot(ActivityHandler):
             last_message_timestamp = conversation_data.timestamp
             current_time = datetime.now(timezone.utc)
             conversation_data.timestamp = current_time
-            print(f"Debug - Current time:{current_time}, and last message time: {last_message_timestamp}")
+            self.logger.debug(f"Debug - Current time:{current_time}, and last message time: {last_message_timestamp}")
             if last_message_timestamp and (current_time - last_message_timestamp) > timedelta(minutes=10):
-                print("Debug - Timestamp is older than 5 minutes, resetting conversation data.")
+                self.logger.debug("Debug - Timestamp is older than 5 minutes, resetting conversation data.")
                 conversation_data.config = None
             # else:
             #     print("Debug - Timestamp is within 5 minutes, keeping conversation data.")
@@ -117,7 +126,7 @@ class StateManagementBot(ActivityHandler):
                     },
                     temperature=0.3,
                 )
-                print("Debug - Assistant updated successfully with the Office Word document template")
+                self.logger.debug("Debug - Assistant updated successfully with the Office Word document template")
                 conversation_data.thread = (
                     client.beta.threads.create()
                 )
@@ -201,7 +210,7 @@ class StateManagementBot(ActivityHandler):
 
         except Exception as e:
             error_details = traceback.format_exc()
-            print(f"Debug - Error in stream_graph_updates:\n{error_details}")
+            self.logger.error(f"Debug - Error in stream_graph_updates:\n{error_details}")
             return f"Error in processing the request: {str(e)}\nStack trace: {error_details}"
         
     def create_card(self, text_message):

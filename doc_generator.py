@@ -8,6 +8,12 @@ from langchain_core.runnables import RunnableConfig
 import time
 import json
 from azure.storage.blob import BlobServiceClient
+import logging
+from opencensus.ext.azure.log_exporter import AzureLogHandler
+
+logger = logging.getLogger(__name__)
+logger.addHandler(AzureLogHandler(connection_string=os.getenv("az_application_insights_key")))
+logger.setLevel(logging.DEBUG)
 
 user_prompt_prefix = """
 Use the document format 'Innovation Hub Agenda Format.docx' available with you. Follow the instructions below to add the markdown content under [Agenda for Innovation Hub Session] below into the document. 
@@ -42,7 +48,7 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
 
         client.beta.assistants.retrieve(assistant_id=l_config.az_assistant_id)
         l_thread = client.beta.threads.retrieve(thread_id=l_thread_id)
-        print(
+        logger.debug(
             "Debug - Assistant retrieved successfully, along with the session thread of the user"
             + l_thread.id
         )
@@ -51,7 +57,7 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         message = client.beta.threads.messages.create(
             thread_id=l_thread.id, role="user", content=user_prompt_prefix+ "\n"+query
         )
-        print("Created message bearing Message id: ", message.id)
+        logger.debug("Created message bearing Message id: ", message.id)
 
         # create a run
         run = client.beta.threads.runs.create(
@@ -59,7 +65,7 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
             assistant_id=l_config.az_assistant_id,
             temperature=0.3
         )
-        print("called thread run ...")
+        logger.debug("called thread run ...")
 
         # wait for the run to complete
         run = wait_for_run(run, l_thread.id, client)
@@ -68,14 +74,14 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
             print("run has failed, extracting results ...")
             print("the thread run has failed !! \n", run.model_dump_json(indent=2))
             return "Sorry, I am unable to process your request at the moment. Please try again later."
-        print("run has completed!!, extracting results ...")
+        logger.debug("run has completed!!, extracting results ...")
 
         messages = client.beta.threads.messages.list(thread_id=l_thread.id)
         # print("Messages are **** \n", messages.model_dump_json(indent=2))
 
         # Use this when streaming is not required
         messages_json = json.loads(messages.model_dump_json())
-        print("response messages_json>\n", messages_json)
+        logger.debug("response messages_json>\n", messages_json)
         l_file_id = None
         l_file_name = None
         
@@ -90,8 +96,8 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
                             if file_path_str.startswith("sandbox:/mnt"):
                                 l_file_id = annotation.get("file_path", {}).get("file_id")
                                 l_file_name = os.path.basename(file_path_str)
-                                print("Extracted file_id:", l_file_id)
-                                print("Extracted file_name:", l_file_name)
+                                logger.debug("Extracted file_id:", l_file_id)
+                                logger.debug("Extracted file_name:", l_file_name)
                                 break
                     else:
                         continue
@@ -113,10 +119,10 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
 
         try:
             container_client.upload_blob(name=l_file_name, data=doc_data_bytes, overwrite=True)
-            print(f"Uploaded document '{l_file_name}' to blob container '{blob_container_name}' successfully.")
+            logger.debug(f"Uploaded document '{l_file_name}' to blob container '{blob_container_name}' successfully.")
             blob_client = container_client.get_blob_client(l_file_name)
             blob_url = blob_client.url
-            print(f"Blob URL: {blob_url}")
+            logger.debug(f"Blob URL: {blob_url}")
             # response = blob_url  # assign the blob url to response
             response = f'The Word document with the details of the Agenda has been created. Please access it from the url here. <a href="{blob_url}" target="_blank">{blob_url}</a>'
         except Exception as upload_error:
@@ -140,9 +146,9 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         # doc_data = client.files.content(l_file_id)
         # doc_data_bytes = doc_data.read()
     except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print("Traceback:")
-        print(traceback.format_exc())
+        logger.error(f"Error occurred: {str(e)}")
+        logger.error("Traceback:")
+        logger.error(traceback.format_exc())
         return f"An error occurred: {str(e)}"
     return response
 
@@ -153,5 +159,5 @@ def wait_for_run(run, thread_id, client):
         run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
         # print("Run status:", run.status)
         time.sleep(0.5)
-    print("Run status:", run.status)
+    logger.debug("Run status:", run.status)
     return run

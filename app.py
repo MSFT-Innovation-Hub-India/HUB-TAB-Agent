@@ -95,8 +95,10 @@ async def messages(req: Request) -> Response:
     response = await ADAPTER.process_activity(activity, auth_header, BOT.on_turn)
 
     logger.warning('processed user message!!!!!!!')
+    # print('response is ', response)
     # print('received a user message')
     if response:
+        print('**response:**', response.body)
         logger.warning('processed user messages \t',response.body)
         return json_response(data=response.body, status=response.status)
     return Response(status=201)
