@@ -212,36 +212,3 @@ class StateManagementBot(ActivityHandler):
             error_details = traceback.format_exc()
             self.logger.error(f"Debug - Error in stream_graph_updates:\n{error_details}")
             return f"Error in processing the request: {str(e)}\nStack trace: {error_details}"
-        
-    def create_card(self, text_message):
-        print("Debug - Creating card with message:", text_message)
-        # Define the Adaptive Card JSON
-        card_json = {
-            "type": "AdaptiveCard",
-            "body": [
-                {
-                    "type": "Container",
-                    "items": [
-                        {
-                            "type": "TextBlock",
-                            "text": text_message * 5,
-                            "wrap": False
-                        }
-                    ]
-                }
-            ],
-            "actions": [],
-            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-            "version": "1.3"
-        }
-
-        # Create an Attachment with the Adaptive Card
-        card_attachment = Attachment(
-            content_type="application/vnd.microsoft.card.adaptive",
-            content=card_json
-        )
-
-        # Create a message with the Attachment
-        message = MessageFactory.attachment(card_attachment)
-        
-        return message
