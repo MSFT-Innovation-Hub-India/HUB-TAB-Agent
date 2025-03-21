@@ -42,7 +42,7 @@ az_openai_endpoint = os.getenv("az_openai_endpoint")
 az_openai_key = os.getenv("az_open_ai_key")
 az_openai_deployment_name = os.getenv("az_deployment_name")
 az_api_type = os.getenv("API_TYPE")
-az_openai_version = os.getenv("API_VERSION")
+az_openai_version = os.getenv("az_openai_api_version")
 
 logger = logging.getLogger(__name__)
 logger.addHandler(AzureLogHandler(connection_string=os.getenv("az_application_insights_key")))

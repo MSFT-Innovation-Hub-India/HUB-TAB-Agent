@@ -50,7 +50,7 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         l_thread = client.beta.threads.retrieve(thread_id=l_thread_id)
         logger.debug(
             "Debug - Assistant retrieved successfully, along with the session thread of the user"
-            + l_thread.id
+            , l_thread.id
         )
 
         # Add a user question to the thread
@@ -81,7 +81,7 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
 
         # Use this when streaming is not required
         messages_json = json.loads(messages.model_dump_json())
-        logger.debug("response messages_json>\n", messages_json)
+        # logger.debug("response messages_json>\n", messages_json)
         l_file_id = None
         l_file_name = None
         

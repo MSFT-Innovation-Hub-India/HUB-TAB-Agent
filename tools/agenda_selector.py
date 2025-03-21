@@ -21,7 +21,7 @@ def set_prompt_template(engagement_type: str) -> dict:
     logger.debug(f"-calling tool to set the Engagement Type to: {engagement_type}.........")
     # print(f"Setting Engagement Type to: {engagement_type}.........")
     e_type=get_prompt_for_engagement_type(engagement_type)
-    logger.debug(f"Setting Engagement Type to: {e_type}.........")
+    # logger.debug(f"Setting Engagement Type to: {e_type}.........")
     return {"prompt_template": e_type}
 
 def get_prompt_for_engagement_type(engagement_type: str) -> str:
