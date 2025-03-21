@@ -49,15 +49,14 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         client.beta.assistants.retrieve(assistant_id=l_config.az_assistant_id)
         l_thread = client.beta.threads.retrieve(thread_id=l_thread_id)
         logger.debug(
-            "Debug - Assistant retrieved successfully, along with the session thread of the user"
-            , l_thread.id
+            f"Debug - Assistant retrieved successfully, along with the session thread of the user {l_thread.id}"
         )
 
         # Add a user question to the thread
         message = client.beta.threads.messages.create(
             thread_id=l_thread.id, role="user", content=user_prompt_prefix+ "\n"+query
         )
-        logger.debug("Created message bearing Message id: ", message.id)
+        logger.debug(f"Created message bearing Message id: {message.id}")
 
         # create a run
         run = client.beta.threads.runs.create(
@@ -96,8 +95,8 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
                             if file_path_str.startswith("sandbox:/mnt"):
                                 l_file_id = annotation.get("file_path", {}).get("file_id")
                                 l_file_name = os.path.basename(file_path_str)
-                                logger.debug("Extracted file_id:", l_file_id)
-                                logger.debug("Extracted file_name:", l_file_name)
+                                logger.debug(f"Extracted file_id: {l_file_id}")
+                                logger.debug(f"Extracted file_name: {l_file_name}")
                                 break
                     else:
                         continue
@@ -159,5 +158,5 @@ def wait_for_run(run, thread_id, client):
         run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
         # print("Run status:", run.status)
         time.sleep(0.5)
-    logger.debug("Run status:", run.status)
+    logger.debug(f"Run status: {run.status}")
     return run
