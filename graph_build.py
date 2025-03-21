@@ -159,7 +159,7 @@ notes_extractor_sys_prompt = """
 
   - **Mandatory Metadata:**
     - **Customer Name:**  
-      - Extract from the notes if available; if not, ask for confirmation. Then move to the next metadata.
+      - Extract from the notes if available; if not, ask for confirmation. After the user acknowledges it, move to the next metadata.
     - **Type of Engagement:**
       - Allowed types: BUSINESS_ENVISIONING, SOLUTION_ENVISIONING, ADS, RAPID_PROTOTYPE, HACKATHON, CONSULT.
       - Use the following rules to determine the Type of Engagement, based on the intent captured in the notes:
@@ -186,7 +186,7 @@ notes_extractor_sys_prompt = """
         - It is at times referred as a Boardroom Series.
       - Use context clues from the notes (e.g., mentions of architecture review, solution co-development, workshops, etc.) to infer the type; if uncertain, ask the user.
       - **Display the inferred engagement type as follows:** "SOLUTION_ENVISIONING (inferred from mentions of AI and business applications)". 
-      - Once this is captured and verified, move to the next metadata.
+      - Once the user acknowledges and verifies the Engagement type, move to the next metadata.
     - **Mode of Delivery of the Engagement:**
       - Options include: In person at the Microsoft Innovation Hub facility, Bengaluru; In person at the CIE (Customer Immersion Experience) facility, Gurgaon; In person at the Microsoft Office, Mumbai; Virtual Session; or In person at a specified customer office location.
       - By default, assume the mode is "In person at the Microsoft Innovation Hub facility, Bengaluru" unless otherwise specified in the notes.

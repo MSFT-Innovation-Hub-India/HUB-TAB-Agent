@@ -414,11 +414,7 @@ prompt_solution_envisioning = """
         - Ensure that the same Speaker name is not assigned to multiple topics in the same session, unless explicitly stated in the input.
         - Confirm that session timings (start time, break intervals, and end time) are correctly applied.
     - If any rule is not met, adjust the output accordingly before delivering the final Agenda.
-    
-    ### Internal Chain-of-Thought Requirement
-    - **Use an internal chain-of-thought process to reason through and verify each of the above business rules before producing the final output.**
-      - This internal reasoning must ensure that all checks are completed, but the detailed chain-of-thought should remain hidden from the final output.
-    
+      
     
     ### **SpeakerMappingTable**
 
@@ -452,6 +448,10 @@ prompt_solution_envisioning = """
     | 4:00 PM – 4:30 PM   | Speaker1\nSr. Architect                  | Solution Envisioning for Drug Discovery by Customers:                                                                                    | Solution Envisioning for such use cases using Azure AI Search:\n- Perform image-based search\n- Search for specific drugs (ayurvedic) or combination drugs\nDiscover key operational requirements at Contoso and discuss how these could be met in the solution.                                                                                                                                                                                                                                                     |
     | 4:30 PM – 5:00 PM   | Speaker1\nSr. Architect                  | Solution Envisioning for Conversational Commerce:                                                                                        | Solution Envisioning for such use cases using Azure Speech and Language Services:\n- STT and TTS capabilities\n- Support for different Indian languages\nDiscover key operational requirements at Contoso and discuss how these could be met in the solution.                                                                                                                                                                                                                                                       |
     | 5:00 PM – 5:15 PM   | Contoso and Microsoft Team                | Wrap up and Next Steps                                                                                                                  |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+    
+    **Important**
+    - When verifying the agenda details arrived at with the user, display the data from the Agenda Table in a format that is convenient for the user to read, with a vertical flow of the data.
+    - But when sharing the final agenda for processing of the next steps in the workflow, the data has to be in the Markdown table format, as shown in the example above.
     
     
     --- use chain of thought to process the user requests ----
