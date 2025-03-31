@@ -16,3 +16,4 @@ botbuilder-core
 botbuilder-dialogs 
 botbuilder-schema
 azure-storage-blob
+azure-mgmt-storage

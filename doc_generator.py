@@ -10,6 +10,13 @@ from azure.storage.blob import BlobServiceClient
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
 from azure.identity import DefaultAzureCredential
+from azure.storage.blob import (
+    generate_blob_sas,
+    BlobSasPermissions,
+)
+from azure.mgmt.storage import StorageManagementClient
+from azure.mgmt.storage.models import StorageAccountUpdateParameters
+import datetime
 
 logger = logging.getLogger(__name__)
 logger.addHandler(
@@ -31,9 +38,15 @@ Use the document format 'Innovation Hub Agenda Format.docx' available with you. 
 
 @tool
 def generate_agenda_document(query: str, config: RunnableConfig) -> str:
-    """
-    For the draft Agenda for the Customer Engagement provided as user input, generate a Microsoft Office Word Document (.docx) .
-
+    """Generate a Microsoft Office Word document (.docx) with the draft Agenda for the Customer Engagement provided as user input.
+    
+    Args:
+        query (str): The agenda items in markdown table format to be included in the document.
+        config (dict): Configuration parameters for document generation including customer_name, 
+                      thread_id, and asst_thread_id.
+    
+    Returns:
+        dict: A dictionary containing the status of document generation and file path information.
     """
     print("preparing to generate the agenda Word document .........")
 
@@ -107,6 +120,12 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
                                     "file_id"
                                 )
                                 l_file_name = os.path.basename(file_path_str)
+
+                                # replace space in l_file_name with underscore
+                                # REPLACE CHARACTERS LIKE %20 with empty
+                                # l_file_name = l_file_name.replace("%20", "")
+                                # l_file_name = l_file_name.replace(" ", "")
+                                
                                 logger.debug(f"Extracted file_id: {l_file_id}")
                                 logger.debug(f"Extracted file_name: {l_file_name}")
                                 break
@@ -141,15 +160,21 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         # response = json.dumps(response)
 
         blob_account_name = l_config.az_storage_account_name
-        az_blob_storage_endpoint = l_config.az_blob_storage_endpoint
-        blob_account_key = l_config.az_storage_account_key
+        # az_blob_storage_endpoint = l_config.az_blob_storage_endpoint
+        az_blob_storage_endpoint=f"https://{blob_account_name}.blob.core.windows.net/"
+        # blob_account_key = l_config.az_storage_account_key
         blob_container_name = l_config.az_storage_container_name
+        az_subscription_id = l_config.az_subscription_id
+        az_storage_rg_name = l_config.az_storage_rg_name
 
         response = upload_document_to_blob_storage_using_mi(
             doc_data_bytes,
             az_blob_storage_endpoint,
+            blob_account_name,
             blob_container_name,
             l_file_name,
+            az_subscription_id,
+            az_storage_rg_name,
         )
     except Exception as e:
         logger.error(f"Error occurred: {str(e)}")
@@ -170,22 +195,70 @@ def wait_for_run(run, thread_id, client):
 
 
 def upload_document_to_blob_storage_using_mi(
-    doc_data_bytes, blob_account_url, blob_container_name, file_name
+    doc_data_bytes,
+    blob_account_url,
+    blob_account_name,
+    blob_container_name,
+    file_name,
+    az_subscription_id,
+    az_storage_rg_name,
 ):
     """
     Uploads the document to Azure Blob Storage.
     """
-    
+
     print("Uploading document to blob storage using managed identity...")
+    response=None
+    # Get the managed identity credential
     azure_credential = DefaultAzureCredential()
+    
+    # Create a BlobServiceClient using the managed identity credential
+    storage_mgmt_client = StorageManagementClient(azure_credential, az_subscription_id)
+    
+    # Check if the storage account allows public access
+    # If not, update the storage account to allow public access
+    properties = storage_mgmt_client.storage_accounts.get_properties(resource_group_name=az_storage_rg_name,account_name=blob_account_name)
+    if properties.public_network_access != "Enabled":
+        logger.debug("Public network access is not enabled. Updating storage account...")
+        
+        # Define the update parameters to allow public access
+        update_params = StorageAccountUpdateParameters(
+            network_rule_set={"default_action": "Allow", "bypass": "AzureServices"},
+            public_network_access="Enabled",
+        )
+
+        # Update the storage account to allow public access
+        mgmt_response = storage_mgmt_client.storage_accounts.update(
+            az_storage_rg_name, blob_account_name, update_params
+        )
+
+        # add a while loop to check the value of mgmt_response.allow_blob_public_access
+        # break when the value is True
+        start_time = time.time()
+        while True:
+            #GETTING UPDATED PROPERTIES OF STORAGE ACCOUNT
+            properties_l = storage_mgmt_client.storage_accounts.get_properties(resource_group_name=az_storage_rg_name,account_name=blob_account_name)
+            if properties_l.public_network_access == "Enabled":
+                logger.debug("Public network access is now updated to allow.")
+                break
+            else:
+                time.sleep(5)
+                # beyond 1 minute, break the loop and return an error message
+                if time.time() - start_time > 60:
+                    logger.error("Timeout: Unable to set Public network access to allow.")
+                    response = f"The Word document with the details of the Agenda has been created. However, unable to access the Storage account to upload the document. Please try again later."
+                    return response
+                continue
+
+    # Create a BlobServiceClient using the managed identity credential
     blob_service_client = BlobServiceClient(
         account_url=blob_account_url, credential=azure_credential
     )
 
-    # connection_string = f"DefaultEndpointsProtocol=https;AccountName={blob_account_name};AccountKey={blob_account_key};EndpointSuffix=core.windows.net"
-    # blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+    # Create a container client
     container_client = blob_service_client.get_container_client(blob_container_name)
 
+    sas_token = None
     try:
         container_client.upload_blob(
             name=file_name, data=doc_data_bytes, overwrite=True
@@ -196,13 +269,42 @@ def upload_document_to_blob_storage_using_mi(
         blob_client = container_client.get_blob_client(file_name)
         blob_url = blob_client.url
         logger.debug(f"Blob URL: {blob_url}")
-        response = f'The Word document with the details of the Agenda has been created. Please access it from the url here. <a href="{blob_url}" target="_blank">{blob_url}</a>'
+
+        # Generate SAS token using user delegation key (Managed Identity)
+        # Get user delegation key
+        start_time = datetime.datetime.utcnow()
+        expiry_time = start_time + datetime.timedelta(days=1)
+
+        user_delegation_key = blob_service_client.get_user_delegation_key(
+            key_start_time=start_time, key_expiry_time=expiry_time
+        )
+
+        # Generate SAS token using the user delegation key
+        sas_token = generate_blob_sas(
+            account_name=blob_account_name,
+            container_name=blob_container_name,
+            blob_name=file_name,
+            user_delegation_key=user_delegation_key,
+            permission=BlobSasPermissions(read=True),
+            expiry=expiry_time,
+        )
+
+        # Create the full URL with SAS token
+        sas_url = f"{blob_url}?{sas_token}"
+        logger.debug(f"Blob URL with SAS: {sas_url}")
+
+        response = f'The Word document with the details of the Agenda has been created. Please access it from the url here. <a href="{sas_url}" target="_blank">{sas_url}</a>'
         return response
     except Exception as e:
         logger.error(f"Failed to upload document: {e}")
         response = f"The Word document with the details of the Agenda has been created. However, there was an error while uploading the document to the blob storage. Please try again later."
         return response
 
+
+
+# This function is used to upload the document to Azure Blob Storage using the storage account key.
+# This is not recommended for production use, as it exposes the storage account key.
+# It is better to use managed identity or user delegation key for authentication. This function is kept for reference only.
 
 def upload_document_to_blob_storage(
     doc_data_bytes, blob_account_name, blob_account_key, blob_container_name, file_name
@@ -230,3 +332,29 @@ def upload_document_to_blob_storage(
         logger.error(f"Failed to upload document: {e}")
         response = f"The Word document with the details of the Agenda has been created. However, there was an error while uploading the document to the blob storage. Please try again later."
         return response
+
+
+# This is to return the created Word document as an attachment in the response in the chat message
+# But since this goes back to the LLM, it hits the token limit, so we are not using it in the application. Retained here only for reference.
+# Convert bytes to base64 for attachment
+def generate_agenda_document_with_attachment(client, l_file_id, l_file_name) -> str:
+    # This is to returned the created Word document as an attachment in the response
+    doc_data = client.files.content(l_file_id)
+    doc_data_bytes = doc_data.read()
+
+    import base64
+    encoded_content = base64.b64encode(doc_data_bytes).decode('utf-8')
+
+    # Create attachment information
+    file_attachment = {
+        "contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "contentUrl": f"data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,{encoded_content}",
+        "name": l_file_name
+    }
+
+    # Return formatted response with attachment info
+    response = {
+        "text": "Here's your generated agenda document:",
+        "attachments": [file_attachment]
+    }
+    response = json.dumps(response)
