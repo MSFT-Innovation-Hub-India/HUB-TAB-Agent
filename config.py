@@ -8,8 +8,8 @@ load_dotenv()
 class DefaultConfig:
     """ Bot Configuration """
     PORT = 3978
-    APP_ID = ""
-    APP_PASSWORD = ""
+    APP_ID = "be8ecd99-12c3-4302-b952-3a0c819f6459"
+    APP_PASSWORD = "fhv8Q~VPIuwcQG57p6I~GhQ9Xv6RFUAGP2Kgecd1"
     APP_TYPE = "MultiTenant"
     APP_TENANTID = "" # leave empty for MultiTenant
 
@@ -26,3 +26,4 @@ class DefaultConfig:
     az_storage_account_name = os.getenv("az_blob_storage_account_name")
     az_storage_account_key = os.getenv("az_blob_storage_key")    
     az_storage_container_name = os.getenv("az_blob_container_name")
+    az_blob_storage_endpoint = os.getenv("az_blob_storage_endpoint")

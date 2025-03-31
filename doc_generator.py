@@ -1,4 +1,3 @@
-from dotenv import load_dotenv
 import os
 import traceback
 from langchain_core.tools import tool
@@ -10,10 +9,14 @@ import json
 from azure.storage.blob import BlobServiceClient
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
+from azure.identity import DefaultAzureCredential
 
 logger = logging.getLogger(__name__)
-logger.addHandler(AzureLogHandler(connection_string=os.getenv("az_application_insights_key")))
+logger.addHandler(
+    AzureLogHandler(connection_string=os.getenv("az_application_insights_key"))
+)
 logger.setLevel(logging.DEBUG)
+
 
 user_prompt_prefix = """
 Use the document format 'Innovation Hub Agenda Format.docx' available with you. Follow the instructions below to add the markdown content under [Agenda for Innovation Hub Session] below into the document. 
@@ -24,6 +27,8 @@ Use the document format 'Innovation Hub Agenda Format.docx' available with you. 
 
 [Agenda for Innovation Hub Session]
 """
+
+
 @tool
 def generate_agenda_document(query: str, config: RunnableConfig) -> str:
     """
@@ -32,11 +37,14 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
     """
     print("preparing to generate the agenda Word document .........")
 
+    response = None
     try:
         configuration = config.get("configurable", {})
         l_thread_id = configuration.get("asst_thread_id", None)
         if not l_thread_id:
-            raise ValueError("active thread not available in the Assistants API Session.")
+            raise ValueError(
+                "active thread not available in the Assistants API Session."
+            )
         response = ""
 
         l_config = DefaultConfig()
@@ -54,7 +62,9 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
 
         # Add a user question to the thread
         message = client.beta.threads.messages.create(
-            thread_id=l_thread.id, role="user", content=user_prompt_prefix+ "\n"+query
+            thread_id=l_thread.id,
+            role="user",
+            content=user_prompt_prefix + "\n" + query,
         )
         logger.debug(f"Created message bearing Message id: {message.id}")
 
@@ -62,7 +72,7 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         run = client.beta.threads.runs.create(
             thread_id=l_thread.id,
             assistant_id=l_config.az_assistant_id,
-            temperature=0.3
+            temperature=0.3,
         )
         logger.debug("called thread run ...")
 
@@ -83,7 +93,7 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         # logger.debug("response messages_json>\n", messages_json)
         l_file_id = None
         l_file_name = None
-        
+
         # Parse the messages_json to extract file_id and filename from text annotations starting with "sandbox:/mnt"
         for item in messages_json.get("data", []):
             for content in item.get("content", []):
@@ -93,7 +103,9 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
                         if annotation.get("type") == "file_path":
                             file_path_str = annotation.get("text", "")
                             if file_path_str.startswith("sandbox:/mnt"):
-                                l_file_id = annotation.get("file_path", {}).get("file_id")
+                                l_file_id = annotation.get("file_path", {}).get(
+                                    "file_id"
+                                )
                                 l_file_name = os.path.basename(file_path_str)
                                 logger.debug(f"Extracted file_id: {l_file_id}")
                                 logger.debug(f"Extracted file_name: {l_file_name}")
@@ -107,48 +119,43 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
 
         doc_data = client.files.content(l_file_id)
         doc_data_bytes = doc_data.read()
-        
+
+        # # This is to returned the created Word document as an attachment in the response
+        # # But since this goes back to the LLM, it hits the token limit, so we are not using it
+        # # Convert bytes to base64 for attachment
+        # import base64
+        # encoded_content = base64.b64encode(doc_data_bytes).decode('utf-8')
+
+        # # Create attachment information
+        # file_attachment = {
+        #     "contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        #     "contentUrl": f"data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,{encoded_content}",
+        #     "name": l_file_name
+        # }
+
+        # # Return formatted response with attachment info
+        # response = {
+        #     "text": "Here's your generated agenda document:",
+        #     "attachments": [file_attachment]
+        # }
+        # response = json.dumps(response)
+
         blob_account_name = l_config.az_storage_account_name
+        az_blob_storage_endpoint = l_config.az_blob_storage_endpoint
         blob_account_key = l_config.az_storage_account_key
         blob_container_name = l_config.az_storage_container_name
-        
-        connection_string = f"DefaultEndpointsProtocol=https;AccountName={blob_account_name};AccountKey={blob_account_key};EndpointSuffix=core.windows.net"
-        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-        container_client = blob_service_client.get_container_client(blob_container_name)
 
-        try:
-            container_client.upload_blob(name=l_file_name, data=doc_data_bytes, overwrite=True)
-            logger.debug(f"Uploaded document '{l_file_name}' to blob container '{blob_container_name}' successfully.")
-            blob_client = container_client.get_blob_client(l_file_name)
-            blob_url = blob_client.url
-            logger.debug(f"Blob URL: {blob_url}")
-            # response = blob_url  # assign the blob url to response
-            response = f'The Word document with the details of the Agenda has been created. Please access it from the url here. <a href="{blob_url}" target="_blank">{blob_url}</a>'
-        except Exception as upload_error:
-            print(f"Failed to upload document: {upload_error}")
-            response = f'The Word document with the details of the Agenda has been created. However, there was an error while uploading the document to the blob storage. Please try again later.'
-        # for item in messages_json["data"]:
-        #     # Check the content array
-        #     for content in item["content"]:
-        #         # If there is text in the content array, print it
-        #         if "text" in content:
-        #             response = content["text"]["value"] + "\n"
-        #     break
-
-        # for item in messages_json["data"]:
-        #     # Check the content array
-        #     for content in item["content"]:
-        #         # If there is text in the content array, print it
-        #         if "text" in content:
-        #             l_file_id = content["file_id"] + "\n"
-        #     break
-        # doc_data = client.files.content(l_file_id)
-        # doc_data_bytes = doc_data.read()
+        response = upload_document_to_blob_storage_using_mi(
+            doc_data_bytes,
+            az_blob_storage_endpoint,
+            blob_container_name,
+            l_file_name,
+        )
     except Exception as e:
         logger.error(f"Error occurred: {str(e)}")
         logger.error("Traceback:")
         logger.error(traceback.format_exc())
-        return f"An error occurred: {str(e)}"
+        response = f"An error occurred when generating the Word document. Please try again later"
     return response
 
 
@@ -160,3 +167,66 @@ def wait_for_run(run, thread_id, client):
         time.sleep(0.5)
     logger.debug(f"Run status: {run.status}")
     return run
+
+
+def upload_document_to_blob_storage_using_mi(
+    doc_data_bytes, blob_account_url, blob_container_name, file_name
+):
+    """
+    Uploads the document to Azure Blob Storage.
+    """
+    
+    print("Uploading document to blob storage using managed identity...")
+    azure_credential = DefaultAzureCredential()
+    blob_service_client = BlobServiceClient(
+        account_url=blob_account_url, credential=azure_credential
+    )
+
+    # connection_string = f"DefaultEndpointsProtocol=https;AccountName={blob_account_name};AccountKey={blob_account_key};EndpointSuffix=core.windows.net"
+    # blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+    container_client = blob_service_client.get_container_client(blob_container_name)
+
+    try:
+        container_client.upload_blob(
+            name=file_name, data=doc_data_bytes, overwrite=True
+        )
+        logger.debug(
+            f"Uploaded document '{file_name}' to blob container '{blob_container_name}' successfully."
+        )
+        blob_client = container_client.get_blob_client(file_name)
+        blob_url = blob_client.url
+        logger.debug(f"Blob URL: {blob_url}")
+        response = f'The Word document with the details of the Agenda has been created. Please access it from the url here. <a href="{blob_url}" target="_blank">{blob_url}</a>'
+        return response
+    except Exception as e:
+        logger.error(f"Failed to upload document: {e}")
+        response = f"The Word document with the details of the Agenda has been created. However, there was an error while uploading the document to the blob storage. Please try again later."
+        return response
+
+
+def upload_document_to_blob_storage(
+    doc_data_bytes, blob_account_name, blob_account_key, blob_container_name, file_name
+):
+    """
+    Uploads the document to Azure Blob Storage.
+    """
+    connection_string = f"DefaultEndpointsProtocol=https;AccountName={blob_account_name};AccountKey={blob_account_key};EndpointSuffix=core.windows.net"
+    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+    container_client = blob_service_client.get_container_client(blob_container_name)
+
+    try:
+        container_client.upload_blob(
+            name=file_name, data=doc_data_bytes, overwrite=True
+        )
+        logger.debug(
+            f"Uploaded document '{file_name}' to blob container '{blob_container_name}' successfully."
+        )
+        blob_client = container_client.get_blob_client(file_name)
+        blob_url = blob_client.url
+        logger.debug(f"Blob URL: {blob_url}")
+        response = f'The Word document with the details of the Agenda has been created. Please access it from the url here. <a href="{blob_url}" target="_blank">{blob_url}</a>'
+        return response
+    except Exception as e:
+        logger.error(f"Failed to upload document: {e}")
+        response = f"The Word document with the details of the Agenda has been created. However, there was an error while uploading the document to the blob storage. Please try again later."
+        return response
