@@ -326,7 +326,6 @@ def upload_document_to_blob_storage_using_mi(
 # This is not recommended for production use, as it exposes the storage account key.
 # It is better to use managed identity or user delegation key for authentication. This function is kept for reference only.
 
-
 def upload_document_to_blob_storage(
     doc_data_bytes, blob_account_name, blob_account_key, blob_container_name, file_name
 ):

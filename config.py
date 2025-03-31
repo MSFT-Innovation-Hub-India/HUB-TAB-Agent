@@ -8,8 +8,9 @@ load_dotenv()
 class DefaultConfig:
     """ Bot Configuration """
     PORT = 3978
-    APP_ID = "be8ecd99-12c3-4302-b952-3a0c819f6459"
-    APP_PASSWORD = "fhv8Q~VPIuwcQG57p6I~GhQ9Xv6RFUAGP2Kgecd1"
+    APP_ID = os.getenv("app_id")
+    APP_PASSWORD = os.getenv("app_pwd")
+    # APP_PASSWORD = "fhv8Q~VPIuwcQG57p6I~GhQ9Xv6RFUAGP2Kgecd1"
     APP_TYPE = "MultiTenant"
     APP_TENANTID = "" # leave empty for MultiTenant
 
