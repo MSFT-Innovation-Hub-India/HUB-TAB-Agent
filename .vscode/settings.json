@@ -31,5 +31,17 @@
         ".vscode{,/**}"
     ],
     "appService.defaultWebAppToDeploy": "/subscriptions/35d56b9b-9660-4b8a-aaf6-76cfc033ac97/resourceGroups/agent-ta-buddy-rg/providers/Microsoft.Web/sites/hub-ta-buddy-web",
-    "appService.deploySubpath": "."
+    "appService.deploySubpath": ".",
+    "containerApps.deploymentConfigurations": [
+        {
+            "label": "tab-ai-assist",
+            "type": "AcrDockerBuildRequest",
+            "dockerfilePath": "Dockerfile",
+            "srcPath": ".",
+            "envPath": ".env",
+            "resourceGroup": "tabagent",
+            "containerApp": "tab-ai-assist",
+            "containerRegistry": "tabagent2eae2b"
+        }
+    ]
 }
