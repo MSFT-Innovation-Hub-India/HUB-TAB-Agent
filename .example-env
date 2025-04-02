@@ -1,7 +1,6 @@
 app_id="your app id"
 app_pwd="your app secret"
 az_openai_endpoint="https:/<youraoai>.openai.azure.com/"
-az_open_ai_key="<youraoaikey>"
 az_deployment_name="gpt-4o"
 az_openai_api_version="2025-01-01-preview"
 API_TYPE="azure"

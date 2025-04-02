@@ -15,7 +15,6 @@ class DefaultConfig:
     APP_TENANTID = "" # leave empty for MultiTenant
 
     az_openai_endpoint=os.getenv("az_openai_endpoint")
-    az_open_ai_key=os.getenv("az_open_ai_key")
     az_open_ai_model=os.getenv("az_open_ai_model")
     az_deployment_name=os.getenv("az_deployment_name")
     az_openai_api_version=os.getenv("az_openai_api_version")
@@ -24,8 +23,7 @@ class DefaultConfig:
     az_assistant_id = os.getenv("az_assistant_id")
     file_ids = os.getenv("file_ids", "").split(",") #comma separated list of file ids,corresponding to the .csv files uploaded to Assistants API
     
-    az_storage_account_name = os.getenv("az_blob_storage_account_name")
-    az_storage_account_key = os.getenv("az_blob_storage_key")    
+    az_storage_account_name = os.getenv("az_blob_storage_account_name")  
     az_storage_container_name = os.getenv("az_blob_container_name")
     az_blob_storage_endpoint = os.getenv("az_blob_storage_endpoint")
     az_subscription_id = os.getenv("az_subscription_id")
