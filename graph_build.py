@@ -28,6 +28,7 @@ from openai import AzureOpenAI
 
 from doc_generator import generate_agenda_document
 from tools.agenda_selector import set_prompt_template
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 import datetime
 import traceback
@@ -45,20 +46,27 @@ az_api_type = os.getenv("API_TYPE")
 az_openai_version = os.getenv("az_openai_api_version")
 
 logger = logging.getLogger(__name__)
-logger.addHandler(AzureLogHandler(connection_string=os.getenv("az_application_insights_key")))
+logger.addHandler(
+    AzureLogHandler(connection_string=os.getenv("az_application_insights_key"))
+)
 logger.setLevel(logging.DEBUG)
+
+# Initialize Azure OpenAI Service client with Entra ID authentication
+token_provider = get_bearer_token_provider(
+    DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
+)
 
 llm = AzureChatOpenAI(
     azure_endpoint=az_openai_endpoint,
     azure_deployment=az_openai_deployment_name,
-    api_key=az_openai_key,
+    azure_ad_token_provider=token_provider,
     openai_api_type=az_api_type,
     api_version=az_openai_version,
     temperature=0.3,
 )
 
 client = AzureOpenAI(
-    api_key=az_openai_key,
+    azure_ad_token_provider=token_provider,
     azure_endpoint=az_openai_endpoint,
     api_version=az_openai_version,
 )
@@ -278,10 +286,9 @@ notes_extractor_sys_prompt = """
 """
 
 
-
 notes_Extractor_Agent_prompt = ChatPromptTemplate(
     [
-        ("system", notes_extractor_sys_prompt+"\nCurrent time: {time}."),
+        ("system", notes_extractor_sys_prompt + "\nCurrent time: {time}."),
         ("placeholder", "{messages}"),
     ]
 ).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -338,6 +345,7 @@ agenda_creator_runnable = agenda_Creator_Agent_prompt | llm.bind_tools(
     [CompleteOrEscalate]
 )
 
+
 class ToAgendaCreator(BaseModel):
     request: str = Field(
         description="I want to generate a detailed Agenda for the Innovation Hub Session for the Customer"
@@ -380,6 +388,7 @@ document_generation_runnable = document_generation_prompt | llm.bind_tools(
     document_generation_tools + [CompleteOrEscalate]
 )
 
+
 class ToDocumentGenerator(BaseModel):
     query: str = Field(
         description="Create a Microsoft Office Word document (.docx) for the agenda items created"
@@ -387,6 +396,7 @@ class ToDocumentGenerator(BaseModel):
     config: RunnableConfig = Field(
         description="The configuration for the document generation"
     )
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -394,6 +404,7 @@ class ToDocumentGenerator(BaseModel):
                 "config": '{{"configurable": {"customer_name": "Ravi Kumar","thread_id": "abcd12344","asst_thread_id": "bcde56789"}}',
             },
         }
+
 
 primary_agent_sys_prompt = """
     You are a helpful AI Assistant for the Technical Architect of Microsoft Innovation Hub Team.
@@ -420,7 +431,9 @@ primary_agent_prompt = ChatPromptTemplate.from_messages(
     ]
 ).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-primary_agent_runnable = primary_agent_prompt | llm.bind_tools([ToNotesExtractor, ToAgendaCreator,ToDocumentGenerator])
+primary_agent_runnable = primary_agent_prompt | llm.bind_tools(
+    [ToNotesExtractor, ToAgendaCreator, ToDocumentGenerator]
+)
 
 
 # -------------------------------
@@ -492,43 +505,55 @@ def user_info(state: State):
 builder.add_node("fetch_user_info", user_info)
 builder.add_edge(START, "fetch_user_info")
 
+
 def prompt_template(state: State) -> dict:
     logger.debug("Setting update_prompt_template_node")
-    
+
     assistant_response = None
     # Iterate backwards over messages to find the desired assistant response
     for msg in reversed(state["messages"]):
         if hasattr(msg, "content") and "Type of Engagement:" in msg.content:
             assistant_response = msg.content
             break
-    
+
     if assistant_response:
         try:
             part = assistant_response.split("Type of Engagement:")[1].strip()
             engagement_inferred = part.split("(")[0].strip()
             state["engagement_type"] = engagement_inferred
             logger.debug(f"Extracted engagement type: {engagement_inferred}")
-            
+
             # Define valid engagement types
-            valid_types = {"BUSINESS_ENVISIONING", "SOLUTION_ENVISIONING", "ADS", 
-                          "RAPID_PROTOTYPE", "HACKATHON", "CONSULT"}
-            
+            valid_types = {
+                "BUSINESS_ENVISIONING",
+                "SOLUTION_ENVISIONING",
+                "ADS",
+                "RAPID_PROTOTYPE",
+                "HACKATHON",
+                "CONSULT",
+            }
+
             # Find the first matching valid type in the string
-            engagement_type = next((t for t in valid_types if t in engagement_inferred), "SOLUTION_ENVISIONING")
+            engagement_type = next(
+                (t for t in valid_types if t in engagement_inferred),
+                "SOLUTION_ENVISIONING",
+            )
             state["engagement_type"] = engagement_type
         except Exception:
             state["engagement_type"] = "SOLUTION_ENVISIONING"  # Fallback default
     else:
         state["engagement_type"] = "SOLUTION_ENVISIONING"  # Default if not found
-    
+
     if state.get("engagement_type"):
         engagement_type = state["engagement_type"]
         template_result = set_prompt_template(engagement_type)
         state["prompt_template"] = template_result["prompt_template"]
         logger.debug(f"Updated prompt_template for engagement type {engagement_type}")
     else:
-        logger.debug("engagement_type not found in state; cannot update prompt_template")
-    
+        logger.debug(
+            "engagement_type not found in state; cannot update prompt_template"
+        )
+
     return {"prompt_template": state.get("prompt_template", None)}
 
 
@@ -566,11 +591,10 @@ def route_notes_extraction(state: State):
     return None
 
 
-
 builder.add_conditional_edges(
     "notes_extraction",
     route_notes_extraction,
-    ["set_prompt_template","leave_skill", END],
+    ["set_prompt_template", "leave_skill", END],
 )
 
 
@@ -583,6 +607,7 @@ builder.add_node(
 )
 builder.add_node("agenda_creation", Assistant(agenda_creator_runnable))
 builder.add_edge("enter_agenda_creation", "agenda_creation")
+
 
 def route_agenda_creation(state: State):
     route = tools_condition(state)
@@ -599,7 +624,6 @@ def route_agenda_creation(state: State):
     # if all(tc["name"] in safe_toolnames for tc in tool_calls):
     #     return "notes_extraction_tools"
     return None
-
 
 
 builder.add_conditional_edges(
@@ -622,6 +646,7 @@ builder.add_node(
     create_tool_node_with_fallback(document_generation_tools),
 )
 
+
 def route_document_generation(state: State):
     route = tools_condition(state)
     if route == END:
@@ -630,10 +655,13 @@ def route_document_generation(state: State):
     did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
     if did_cancel:
         return "leave_skill"
-    safe_toolnames = [t.name if hasattr(t, "name") else t.__name__ for t in document_generation_tools]
+    safe_toolnames = [
+        t.name if hasattr(t, "name") else t.__name__ for t in document_generation_tools
+    ]
     if all(tc["name"] in safe_toolnames for tc in tool_calls):
         return "document_generation_tools"
     return None
+
 
 builder.add_edge("document_generation_tools", "document_generation")
 builder.add_conditional_edges(
@@ -641,6 +669,8 @@ builder.add_conditional_edges(
     route_document_generation,
     ["document_generation_tools", "leave_skill", END],
 )
+
+
 # -------------------------------
 # Node to Exit Specialized Assistants
 # -------------------------------
@@ -707,13 +737,14 @@ builder.add_conditional_edges(
 # When the user responds, we want to return to the currently active workflow
 def route_to_workflow(
     state: State,
-) -> Literal["primary_assistant", "notes_extraction", "agenda_creation", "document_generation"]:
+) -> Literal[
+    "primary_assistant", "notes_extraction", "agenda_creation", "document_generation"
+]:
     """If we are in a delegated state, route directly to the appropriate assistant."""
     dialog_state = state.get("dialog_state")
     if not dialog_state:
         return "primary_assistant"
     return dialog_state[-1]
-
 
 
 builder.add_conditional_edges("fetch_user_info", route_to_workflow)
