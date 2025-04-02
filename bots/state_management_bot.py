@@ -16,6 +16,7 @@ import json
 from datetime import datetime, timedelta, timezone
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider  
 
 
 
@@ -62,6 +63,7 @@ class StateManagementBot(ActivityHandler):
         self.logger.setLevel(logging.DEBUG)
 
     async def on_message_activity(self, turn_context: TurnContext):
+        turn_context.activity.from_property
         # Get the state properties from the turn context.
         user_profile = await self.user_profile_accessor.get(turn_context, UserProfile)
         conversation_data = await self.conversation_data_accessor.get(
@@ -113,13 +115,24 @@ class StateManagementBot(ActivityHandler):
             if conversation_data.config is None:
                 # Create a graph
                 l_graph_thread_id = str(uuid.uuid4())
+                
+                # Initialize Azure OpenAI Service client with Entra ID authentication
+                token_provider = get_bearer_token_provider(  
+                    DefaultAzureCredential(),  
+                    "https://cognitiveservices.azure.com/.default"  
+                )  
 
+                client = AzureOpenAI(  
+                    azure_endpoint=self.config.az_openai_endpoint,  
+                    azure_ad_token_provider=token_provider,  
+                    api_version=self.config.az_openai_api_version,  
+                )  
                 # Update the Assistant ID and Thread ID in the graph
-                client = AzureOpenAI(
-                    api_key=self.config.az_open_ai_key,
-                    azure_endpoint=self.config.az_openai_endpoint,
-                    api_version=self.config.az_openai_api_version,
-                )
+                # client = AzureOpenAI(
+                #     api_key=self.config.az_open_ai_key,
+                #     azure_endpoint=self.config.az_openai_endpoint,
+                #     api_version=self.config.az_openai_api_version,
+                # )
 
                 client.beta.assistants.update(
                     self.config.az_assistant_id,

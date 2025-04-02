@@ -23,6 +23,7 @@ logger.addHandler(
     AzureLogHandler(connection_string=os.getenv("az_application_insights_key"))
 )
 logger.setLevel(logging.DEBUG)
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 
 user_prompt_prefix = """
@@ -61,11 +62,22 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         response = ""
 
         l_config = DefaultConfig()
+
+        # Initialize Azure OpenAI Service client with Entra ID authentication
+        token_provider = get_bearer_token_provider(
+            DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
+        )
+
         client = AzureOpenAI(
-            api_key=l_config.az_open_ai_key,
             azure_endpoint=l_config.az_openai_endpoint,
+            azure_ad_token_provider=token_provider,
             api_version=l_config.az_openai_api_version,
         )
+        # client = AzureOpenAI(
+        #     api_key=l_config.az_open_ai_key,
+        #     azure_endpoint=l_config.az_openai_endpoint,
+        #     api_version=l_config.az_openai_api_version,
+        # )
 
         client.beta.assistants.retrieve(assistant_id=l_config.az_assistant_id)
         l_thread = client.beta.threads.retrieve(thread_id=l_thread_id)
@@ -325,6 +337,7 @@ def upload_document_to_blob_storage_using_mi(
 # This function is used to upload the document to Azure Blob Storage using the storage account key.
 # This is not recommended for production use, as it exposes the storage account key.
 # It is better to use managed identity or user delegation key for authentication. This function is kept for reference only.
+
 
 def upload_document_to_blob_storage(
     doc_data_bytes, blob_account_name, blob_account_key, blob_container_name, file_name
