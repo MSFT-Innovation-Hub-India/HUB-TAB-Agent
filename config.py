@@ -25,6 +25,7 @@ class DefaultConfig:
     
     az_storage_account_name = os.getenv("az_blob_storage_account_name")  
     az_storage_container_name = os.getenv("az_blob_container_name")
+    az_blob_container_name_hubmaster = os.getenv("az_blob_container_name_hubmaster")
     az_blob_storage_endpoint = os.getenv("az_blob_storage_endpoint")
     az_subscription_id = os.getenv("az_subscription_id")
     az_storage_rg_name = os.getenv("az_storage_rg")

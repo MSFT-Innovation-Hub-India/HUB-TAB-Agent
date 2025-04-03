@@ -16,8 +16,7 @@ import json
 from datetime import datetime, timedelta, timezone
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
-from azure.identity import DefaultAzureCredential, get_bearer_token_provider  
-
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 
 class StateManagementBot(ActivityHandler):
@@ -86,7 +85,7 @@ class StateManagementBot(ActivityHandler):
             else:
                 # Prompt the user for their name.
                 await turn_context.send_activity(
-                    "I am TA Buddy representing Microsoft innovation Hub, India. I can help you process Briefing call notes to produce Agenda documents. "
+                    "I am TA Buddy representing Microsoft innovation Hub. I can help you process Briefing call notes to produce Agenda documents. "
                     + "Can you help me with your name?"
                 )
 
@@ -154,6 +153,7 @@ class StateManagementBot(ActivityHandler):
                         "customer_name": "Ravi Kumar",
                         "thread_id": l_graph_thread_id,
                         "asst_thread_id": conversation_data.thread.id,
+                        "hub_location": "Bengaluru",
                     }
                 }
                 conversation_data.config = config
@@ -176,6 +176,9 @@ class StateManagementBot(ActivityHandler):
             now_timestamp
         )
         result = utc_datetime + offset
+        
+        
+        
         return result.strftime("%I:%M:%S %p, %A, %B %d of %Y")
 
     def stream_graph_updates(self, user_input: str, graph, config) -> str:

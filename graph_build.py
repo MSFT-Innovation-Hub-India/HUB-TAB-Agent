@@ -37,6 +37,7 @@ from IPython.display import display, Image
 
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
+from tools.hub_master import get_hub_masterdata
 
 load_dotenv()
 az_openai_endpoint = os.getenv("az_openai_endpoint")
@@ -85,8 +86,9 @@ class State(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     engagement_type: str
     prompt_template: str
+    hub_master_info: str
     dialog_state: Annotated[
-        list[Literal["primary_assistant", "notes_extraction", "agenda_creation"]],
+        list[Literal["primary_assistant", "notes_extraction", "agenda_creation", "document_generation"]],
         update_dialog_stack,
     ]
 
@@ -145,6 +147,7 @@ notes_extractor_sys_prompt = """
   - You must proceed **step-by-step**, confirming one metadata item at a time before moving to the next.
   - Always use **chain-of-thought reasoning** while inferring values.
   - Present the final structured response **only after confirming both metadata and agenda goals** with the user.
+  - Refer to the content below to evaluate the rules and criteria specificed \n ----- hub master info ------\n {hub_master_info}\n ----- end of hub master info ------\n
 
 - **Briefing Notes Handling:**
   - Meeting notes may be provided as either:
@@ -189,12 +192,10 @@ notes_extractor_sys_prompt = """
 
     - **Mode of Delivery:**
       - Options include:  
-        - In person at the Microsoft Innovation Hub facility, Bengaluru  
-        - In person at the CIE facility, Gurgaon  
-        - In person at the Microsoft Office, Mumbai  
+        - In person at the Microsoft Innovation Hub facility, $city  (**instruction**: get the city name from the section #Innovation Hub Location:, in hub master info, above)
         - Virtual Session  
         - In person at the customer's office
-      - Default assumption: Innovation Hub, Bengaluru.
+      - Default assumption: Innovation Hub, $city.
       - Example inference:  
         `"In person at the Microsoft Innovation Hub facility, Bengaluru (inferred from note stating the Customer team is travelling to Microsoft Office)"`
       - Ask the user to confirm.
@@ -205,7 +206,7 @@ notes_extractor_sys_prompt = """
       - Confirm with user before moving forward.
 
     - **Lead Architect from Microsoft Innovation Hub:**
-      - Must be one of: `Srikantan Sankaran`, `Divya SK`, `Bishnu Agrawal`, `Vishakha Arbat`, `Pallavi Lokesh`.
+      - Must be one of the architect names in #SpeakerMappingTable in hub master info
       - Infer from context (e.g., “Bishnu led the session”) or ask the user if unclear.
 
     - **Date and Time for the Engagement:**
@@ -325,7 +326,9 @@ class ToNotesExtractor(BaseModel):
 agenda_creator_sys_prompt = """
     **You are the Agenda Creator Agent**
     - Your primary responsibility is to generate a detailed Agenda based on the metadata and goals provided as input.
-    - Use the Agenda Template format and instructions below and populate the topics.\n {prompt_template}
+    - Refer to the content below to evaluate the rules and criteria specificed \n ----- hub master info ------\n {hub_master_info}\n ----- end of hub master info ------\n
+    - Use the Agenda Template format and instructions below and populate the topics.\n ----- start of agenda template ------\n {prompt_template} \n  ----- end of agenda template ------\n
+    - To identify the speakers for the topics, refer to the #SpeakerMappingTable in the hub master info above.
     - You will receive the input for agenda topics creation inside the section labeled **### Engagement Goals Confirmation Message ###**.
     - When missing information is identified, ask the user for the missing details.
     - **Create a final Agenda** in the Markdown table format following the sample provided.
@@ -498,12 +501,18 @@ def _print_event(event: dict, _printed: set, max_length=1500):
 builder = StateGraph(State)
 
 
+def hub_master_info(state: State):
+    if state.get("hub_master_info"):
+        return {"hub_master_info": state.get("hub_master_info")}
+    else:
+        return {"hub_master_info": get_hub_masterdata.invoke({})}
+
 def user_info(state: State):
     return {"user_info": "User info"}
 
 
-builder.add_node("fetch_user_info", user_info)
-builder.add_edge(START, "fetch_user_info")
+builder.add_node("fetch_hub_info", hub_master_info)
+builder.add_edge(START, "fetch_hub_info")
 
 
 def prompt_template(state: State) -> dict:
@@ -747,7 +756,7 @@ def route_to_workflow(
     return dialog_state[-1]
 
 
-builder.add_conditional_edges("fetch_user_info", route_to_workflow)
+builder.add_conditional_edges("fetch_hub_info", route_to_workflow)
 
 
 memory = MemorySaver()
