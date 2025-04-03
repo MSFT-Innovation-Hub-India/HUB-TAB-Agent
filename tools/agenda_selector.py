@@ -1,17 +1,17 @@
-from dotenv import load_dotenv
-import os
-import traceback
-from langchain_core.tools import tool
 from config import DefaultConfig
-from langchain_core.runnables import RunnableConfig
-import time
-import json
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
 
+l_config = DefaultConfig()
+
 logger = logging.getLogger(__name__)
-logger.addHandler(AzureLogHandler(connection_string=os.getenv("az_application_insights_key")))
-logger.setLevel(logging.DEBUG)
+logger.addHandler(AzureLogHandler(connection_string=l_config.az_application_insights_key))
+# Set the logging level based on the configuration
+log_level_str = l_config.log_level.upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
+logger.setLevel(log_level)
+
+# logger.setLevel(logging.DEBUG)
 
 def set_prompt_template(engagement_type: str) -> dict:
     """

@@ -14,16 +14,25 @@ from azure.storage.blob import (
     generate_blob_sas,
     BlobSasPermissions,
 )
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from azure.mgmt.storage import StorageManagementClient
 from azure.mgmt.storage.models import StorageAccountUpdateParameters
 import datetime
+from config import DefaultConfig
+
+l_config = DefaultConfig()
 
 logger = logging.getLogger(__name__)
 logger.addHandler(
-    AzureLogHandler(connection_string=os.getenv("az_application_insights_key"))
+    AzureLogHandler(connection_string=l_config.az_application_insights_key)
 )
-logger.setLevel(logging.DEBUG)
-from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+
+# Set the logging level based on the configuration
+log_level_str = l_config.log_level.upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
+logger.setLevel(log_level)
+# logger.debug(f"Logging level set to {log_level_str}")
+# logger.setLevel(logging.DEBUG)
 
 
 user_prompt_prefix = """
@@ -56,12 +65,11 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         configuration = config.get("configurable", {})
         l_thread_id = configuration.get("asst_thread_id", None)
         if not l_thread_id:
+            logger.error("active thread not available in the Assistants API Session.")
             raise ValueError(
                 "active thread not available in the Assistants API Session."
             )
         response = ""
-
-        l_config = DefaultConfig()
 
         # Initialize Azure OpenAI Service client with Entra ID authentication
         token_provider = get_bearer_token_provider(
@@ -73,16 +81,12 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
             azure_ad_token_provider=token_provider,
             api_version=l_config.az_openai_api_version,
         )
-        # client = AzureOpenAI(
-        #     api_key=l_config.az_open_ai_key,
-        #     azure_endpoint=l_config.az_openai_endpoint,
-        #     api_version=l_config.az_openai_api_version,
-        # )
 
+        # Get the assistant and thread instance for the session
         client.beta.assistants.retrieve(assistant_id=l_config.az_assistant_id)
         l_thread = client.beta.threads.retrieve(thread_id=l_thread_id)
         logger.debug(
-            f"Debug - Assistant retrieved successfully, along with the session thread of the user {l_thread.id}"
+            f"Debug - Word Document Generator Agent retrieved successfully, along with the session thread of the user {l_thread.id}"
         )
 
         # Add a user question to the thread
@@ -91,7 +95,9 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
             role="user",
             content=user_prompt_prefix + "\n" + query,
         )
-        logger.debug(f"Created message bearing Message id: {message.id}")
+        logger.debug(
+            f"Word Document Generator Agent: Created message bearing Message id: {message.id}"
+        )
 
         # create a run
         run = client.beta.threads.runs.create(
@@ -99,16 +105,22 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
             assistant_id=l_config.az_assistant_id,
             temperature=0.3,
         )
-        logger.debug("called thread run ...")
+        logger.debug("Word Document Generator Agent: called thread run ...")
 
         # wait for the run to complete
         run = wait_for_run(run, l_thread.id, client)
 
         if run.status == "failed":
-            print("run has failed, extracting results ...")
-            print("the thread run has failed !! \n", run.model_dump_json(indent=2))
+            logger.debug(
+                "Word Document Generator Agent: run has failed, extracting results ..."
+            )
+            logger.debug(
+                "Word Document Generator Agent: the thread run has failed !! \n",
+                run.model_dump_json(indent=2),
+            )
             return "Sorry, I am unable to process your request at the moment. Please try again later."
-        logger.debug("run has completed!!, extracting results ...")
+
+        logger.debug("Word Document Generator Agent: run completed ...")
 
         messages = client.beta.threads.messages.list(thread_id=l_thread.id)
         # print("Messages are **** \n", messages.model_dump_json(indent=2))
@@ -147,13 +159,12 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         doc_data_bytes = doc_data.read()
 
         blob_account_name = l_config.az_storage_account_name
-        # az_blob_storage_endpoint = l_config.az_blob_storage_endpoint
         az_blob_storage_endpoint = f"https://{blob_account_name}.blob.core.windows.net/"
-        # blob_account_key = l_config.az_storage_account_key
         blob_container_name = l_config.az_storage_container_name
         az_subscription_id = l_config.az_subscription_id
         az_storage_rg_name = l_config.az_storage_rg_name
 
+        # Upload the document to Azure Blob Storage using managed identity
         response = upload_document_to_blob_storage_using_mi(
             doc_data_bytes,
             az_blob_storage_endpoint,
@@ -164,9 +175,10 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
             az_storage_rg_name,
         )
     except Exception as e:
-        logger.error(f"Error occurred: {str(e)}")
-        logger.error("Traceback:")
-        logger.error(traceback.format_exc())
+        logger.error(f"Word Document Generator Agent: Error occurred: {str(e)}")
+        logger.error(
+            f"Word Document Generator Agent: Error details\n {traceback.format_exc()}"
+        )
         response = f"An error occurred when generating the Word document. Please try again later"
     return response
 
@@ -208,7 +220,7 @@ def upload_document_to_blob_storage_using_mi(
     )
     if properties.public_network_access != "Enabled":
         logger.debug(
-            "Public network access is not enabled. Updating storage account..."
+            "Word Document Generator Agent: Public network access is not enabled. Updating storage account..."
         )
 
         # Define the update parameters to allow public access
@@ -228,12 +240,16 @@ def upload_document_to_blob_storage_using_mi(
         flag = True
         while flag:
             # GETTING UPDATED PROPERTIES OF STORAGE ACCOUNT
-            logger.debug("Checking the current status of public network access...")
+            logger.debug(
+                "Word Document Generator Agent: Checking the current status of public network access..."
+            )
             properties_l = storage_mgmt_client.storage_accounts.get_properties(
                 resource_group_name=az_storage_rg_name, account_name=blob_account_name
             )
             if properties_l.public_network_access == "Enabled":
-                logger.debug("Public network access is now updated to allow.")
+                logger.debug(
+                    "Word Document Generator Agent: Public network access is now updated to allow."
+                )
                 flag = False
                 break
             else:
@@ -241,14 +257,18 @@ def upload_document_to_blob_storage_using_mi(
                 # beyond 1 minute, break the loop and return an error message
                 if time.time() - start_time > 60:
                     logger.error(
-                        "Timeout: Unable to set Public network access to allow."
+                        "Word Document Generator Agent: Timeout: Unable to set Public network access to allow."
                     )
-                    response = f"The Word document with the details of the Agenda has been created. However, unable to access the Storage account to upload the document. Please try again later."
+                    response = f"Word Document Generator Agent: The Word document with the details of the Agenda has been created. However, unable to access the Storage account to upload the document. Shall I try once more?"
                     return response
-                logger.debug("it is still not enabled for public access...")
+                logger.debug(
+                    "Word Document Generator Agent: Azure Storage Account is still not enabled for public access..."
+                )
                 continue
 
-    logger.debug("Uploading document to blob storage using managed identity...")
+    logger.debug(
+        "Word Document Generator Agent: Uploading document to blob storage using managed identity..."
+    )
     # Create a BlobServiceClient using the managed identity credential
 
     sas_token = None
@@ -278,26 +298,35 @@ def upload_document_to_blob_storage_using_mi(
             )
             success = True
             logger.debug(
-                f"Uploaded document '{file_name}' to blob container '{blob_container_name}' successfully."
+                f"Word Document Generator Agent: Uploaded document '{file_name}' to blob container '{blob_container_name}' successfully."
             )
             break  # Exit the retry loop if upload succeeds
         except Exception as e:
-            logger.warning(f"Upload attempt {attempt+1} failed: {str(e)}")
+            logger.warning(
+                f"Word Document Generator Agent: Upload attempt {attempt+1} failed: {str(e)}"
+            )
             if attempt < max_retries - 1:
-                logger.info(f"Waiting {retry_delay} seconds before retry...")
+                logger.info(
+                    f"Word Document Generator Agent: Waiting {retry_delay} seconds before retry..."
+                )
                 time.sleep(retry_delay)
                 retry_delay *= 2  # Exponential backoff
             else:
-                logger.error(f"All {max_retries} upload attempts failed")
+                logger.error(
+                    f"Word Document Generator Agent: All {max_retries} upload attempts failed"
+                )
                 raise  # Re-raise the exception after all retries fail
 
     if not success:
-        response = f"The Word document with the details of the Agenda has been created. However, there was an error while uploading the document to the blob storage. Please try again later."
+        response = f"Word Document Generator Agent: The Word document with the details of the Agenda has been created. However, there was an error while uploading the document to the blob storage. Shall I try once again?"
         return response
 
     blob_client = container_client.get_blob_client(file_name)
     blob_url = blob_client.url
-    logger.debug(f"Blob URL: {blob_url}")
+    # logger.debug(f"Blob URL: {blob_url}")
+    logger.debug(
+        f"Word Document Generator Agent: Creating a download link for the generated Word Document: Blob URL: {blob_url}"
+    )
 
     # Generate SAS token using user delegation key (Managed Identity)
     # Get user delegation key
@@ -321,16 +350,16 @@ def upload_document_to_blob_storage_using_mi(
 
         # Create the full URL with SAS token
         sas_url = f"{blob_url}?{sas_token}"
-        logger.debug(f"Blob URL with SAS: {sas_url}")
+        # logger.debug(f"Blob URL with SAS: {sas_url}")
 
         response = f'The Word document with the details of the Agenda has been created. Please access it from the url here. <a href="{sas_url}" target="_blank">{sas_url}</a>'
         return response
     except Exception as e:
         logger.error(
-            f"Failed to generate SAS Token to download the uploaded document: {e}"
+            f"Word Document Generator Agent: Failed to generate SAS Token to download the uploaded document: {e}"
         )
-        logger.error(traceback.format_exc())
-        response = f"The Word document with the details of the Agenda has been created adn uploaded. However, there was an error getting the download URL for it. Please try again later."
+        logger.error(f"Word Document Generator Agent: {traceback.format_exc()}")
+        response = f"The Word document with the details of the Agenda has been created adn uploaded. However, there was an error getting the download URL for it. Shall I try once again?"
         return response
 
 

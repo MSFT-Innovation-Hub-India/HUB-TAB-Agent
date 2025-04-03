@@ -1,8 +1,4 @@
 from azure.identity import DefaultAzureCredential
-from azure.storage.blob import (
-    generate_blob_sas,
-    BlobSasPermissions,
-)
 from config import DefaultConfig
 from azure.mgmt.storage import StorageManagementClient
 from azure.mgmt.storage.models import StorageAccountUpdateParameters
@@ -10,20 +6,23 @@ from azure.storage.blob import BlobServiceClient
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
 import time
-import os
-
 import traceback
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
+l_config = DefaultConfig()
 logger = logging.getLogger(__name__)
 logger.addHandler(
-    AzureLogHandler(connection_string=os.getenv("az_application_insights_key"))
+    AzureLogHandler(connection_string=l_config.az_application_insights_key)
 )
-logger.setLevel(logging.DEBUG)
-from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
-l_config = DefaultConfig()
+# Set the logging level based on the configuration
+log_level_str = l_config.log_level.upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
+logger.setLevel(log_level)
+# logger.debug(f"Logging level set to {log_level_str}")
+# logger.setLevel(logging.DEBUG)
+
 
 @tool
 def get_hub_masterdata(config: RunnableConfig) -> str:
@@ -39,6 +38,9 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
     blob_container_name = l_config.az_blob_container_name_hubmaster
     az_subscription_id = l_config.az_subscription_id
     az_storage_rg_name = l_config.az_storage_rg_name
+
+    # remove spaces and special characters from the city name
+    cityname = "".join(e for e in cityname if e.isalnum())
     file_name = f"Hub-{cityname}.md"
     response = None
 
@@ -58,7 +60,7 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
         )
         if properties.public_network_access != "Enabled":
             logger.debug(
-                "Public network access is not enabled. Updating storage account..."
+                "Hub Master Template Retrieval - Public network access is not enabled. Updating storage account..."
             )
 
             # Define the update parameters to allow public access
@@ -78,13 +80,17 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
             flag = True
             while flag:
                 # GETTING UPDATED PROPERTIES OF STORAGE ACCOUNT
-                logger.debug("Checking the current status of public network access...")
+                logger.debug(
+                    "Hub Master Template Retrieval - Checking the current status of public network access..."
+                )
                 properties_l = storage_mgmt_client.storage_accounts.get_properties(
                     resource_group_name=az_storage_rg_name,
                     account_name=blob_account_name,
                 )
                 if properties_l.public_network_access == "Enabled":
-                    logger.debug("Public network access is now updated to allow.")
+                    logger.debug(
+                        "Hub Master Template Retrieval - Public network access is now updated to allow."
+                    )
                     flag = False
                     break
                 else:
@@ -92,21 +98,25 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
                     # beyond 1 minute, break the loop and return an error message
                     if time.time() - start_time > 60:
                         logger.error(
-                            "Timeout: Unable to set Public network access to allow."
+                            "Hub Master Template Retrieval - Timeout: Unable to set Public network access to allow."
                         )
                         response = f"The Word document with the details of the Agenda has been created. However, unable to access the Storage account to upload the document. Please try again later."
                         return response
-                    logger.debug("it is still not enabled for public access...")
+                    logger.debug(
+                        "Hub Master Template Retrieval - Storage Account is still not enabled for public access..."
+                    )
                     continue
     except Exception as e:
-        logger.error(f"Error while checking or updating public network access: {e}")
+        logger.error(
+            f"Hub Master Template Retrieval - Error while checking or updating public network access: {e}"
+        )
         logger.error(traceback.format_exc())
-        response = f"Due to public network access restrictions on the Storage account unable to read the Hub Master data document. Please try again later."
+        response = f"Due to public network access restrictions on the Storage account, unable to access the Hub Master data document. Please try again later."
         return response
+
     logger.debug(
-        "Reading the Hub Master data from blob storage using managed identity..."
+        "Hub Master Template Retrieval - Proceeding now to read the Hub Master data from blob storage using managed identity..."
     )
-    # Create a BlobServiceClient using the managed identity credential
 
     # Add retry logic for the upload operation
     max_retries = 3
@@ -115,10 +125,11 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
     blob_service_client = None
     container_client = None
 
-    # When the public network access is set to enabled, from disabled, through this program, the blob access when done immediately fails.
-    # So, we need to add a retry logic to upload the document to blob storage, including a delay of 5 seconds between each retry.
+    # When the public network access is updated to enabled, from a 'disabled' state, from the code here, the blob access, when tried soon after, fails.
+    # So, we need to add a retry logic to access the document in the blob storage, including a delay of 5 seconds between each retry.
     for attempt in range(max_retries):
         try:
+            # Create a BlobServiceClient using the managed identity credential
             blob_service_client = BlobServiceClient(
                 account_url=blob_account_url, credential=DefaultAzureCredential()
             )
@@ -140,10 +151,13 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
                         response = response.decode("utf-8")
                         logger.debug(f"Hub Master file content:\n {response}")
                         success = True
+                        logger.debug(
+                            f"read hub master data from '{file_name}' in blob container '{blob_container_name}' successfully."
+                        )
                         break
-            logger.debug(
-                f"read hub master data from '{file_name}' in blob container '{blob_container_name}' successfully."
-            )
+            if not success:
+                response = f"Unable to locate Innovation Hub, Master data document - {file_name} - in the blob storage. Please contact your admin"
+
         except Exception as e:
             logger.warning(
                 f"Hub master data document read attempt {attempt+1} failed: {str(e)}"
@@ -156,7 +170,5 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
                 logger.error(
                     f"All {max_retries} hub master data document read attempts failed"
                 )
-
-    if not success:
-        response = f"There was an error while reading the Hub Master data document from the blob storage. Shall I try once more?"
+                response = f"There was an error while reading the Hub Master data document from the blob storage. Shall I try once more?"
     return response

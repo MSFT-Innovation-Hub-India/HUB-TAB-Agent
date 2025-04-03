@@ -1,5 +1,4 @@
 from botbuilder.core import ActivityHandler, ConversationState, TurnContext, UserState
-
 from data_models.user_profile import UserProfile
 from data_models.conversation_data import ConversationData
 import time
@@ -10,8 +9,7 @@ import time
 import graph_build
 import uuid
 import traceback
-from botbuilder.core import ActivityHandler, MessageFactory, TurnContext
-from botbuilder.schema import Activity, ActivityTypes, Attachment
+from botbuilder.core import ActivityHandler, TurnContext
 import json
 from datetime import datetime, timedelta, timezone
 import logging
@@ -22,7 +20,6 @@ from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 class StateManagementBot(ActivityHandler):
 
     connection = None
-    # assistant_id = "asst_FguPQz5y5prwRADEepQkwope"
 
     asst_sys_prompt = """
     You are an AI Assistant tasked with helping the Technical Architects at the Microsoft Innovation Hub prepare a Microsoft Office Word Document (.docx format) containing the planned Agenda for the Customer Engagement.
@@ -54,19 +51,38 @@ class StateManagementBot(ActivityHandler):
         self.conversation_data_accessor = self.conversation_state.create_property(
             "ConversationData"
         )
+
+        # In the current version of the App, the logged in user context from Microsoft Teams is not used automatically.
+        # Presently, the user is merely prompted for their name and Innovation Hub location the belong to.
         self.user_profile_accessor = self.user_state.create_property("UserProfile")
         self.logger = logging.getLogger(__name__)
         self.logger.addHandler(
             AzureLogHandler(connection_string=self.config.az_application_insights_key)
         )
-        self.logger.setLevel(logging.DEBUG)
+
+        # Set the logging level based on the configuration
+        log_level_str = self.config.log_level.upper()
+        log_level = getattr(logging, log_level_str, logging.INFO)
+        self.logger.setLevel(log_level)
+        self.logger.debug(f"Logging level set to {log_level_str}")
+        # self.logger.setLevel(logging.DEBUG)
 
     async def on_message_activity(self, turn_context: TurnContext):
-        turn_context.activity.from_property
         # Get the state properties from the turn context.
         user_profile = await self.user_profile_accessor.get(turn_context, UserProfile)
         conversation_data = await self.conversation_data_accessor.get(
             turn_context, ConversationData
+        )
+
+        # Initialize Azure OpenAI Service client with Entra ID authentication
+        token_provider = get_bearer_token_provider(
+            DefaultAzureCredential(),
+            "https://cognitiveservices.azure.com/.default",
+        )
+        client = AzureOpenAI(
+            azure_endpoint=self.config.az_openai_endpoint,
+            azure_ad_token_provider=token_provider,
+            api_version=self.config.az_openai_api_version,
         )
 
         if user_profile.name is None:
@@ -77,20 +93,76 @@ class StateManagementBot(ActivityHandler):
 
                 # Acknowledge that we got their name.
                 await turn_context.send_activity(
-                    f"Thanks { user_profile.name }. Let me know how can I help you today"
+                    f"Thanks { user_profile.name }. Now I need to know which Innovation Hub location (city) you're working with."
                 )
 
                 # Reset the flag to allow the bot to go though the cycle again.
                 conversation_data.prompted_for_user_name = False
+                # Set flag to prompt for hub location
+                conversation_data.prompted_for_hub_location = True
             else:
                 # Prompt the user for their name.
                 await turn_context.send_activity(
-                    "I am TA Buddy representing Microsoft innovation Hub. I can help you process Briefing call notes to produce Agenda documents. "
+                    "I am TAB, your Technical Architect Buddy representing Microsoft innovation Hub. I can help you process Briefing call notes to produce Agenda documents. "
                     + "Can you help me with your name?"
                 )
 
                 # Set the flag to true, so we don't prompt in the next turn.
                 conversation_data.prompted_for_user_name = True
+        elif conversation_data.prompted_for_hub_location:
+            # Get hub location from user input
+            user_input = turn_context.activity.text
+
+            # Use Azure OpenAI to validate the city against the list of valid cities
+            try:
+                # Create a system message to instruct the model on the task
+                messages = [
+                    {
+                        "role": "system",
+                        "content": f'You are a city validation assistant. Based on the user input identify the match from the list of valid Innovation Hub location cities: {self.config.hub_cities}. Return a JSON response in the format {{"city": "matched_city_name"}} or {{"city": null}} if no match. Use your knowledge of the cities to validate the user input, even if the user provides synonyms for the city names.',
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Is '{user_input}' a valid city in this list: {self.config.hub_cities}?",
+                    },
+                ]
+
+                # Get the validation from Azure OpenAI
+                response = client.chat.completions.create(
+                    model=self.config.az_deployment_name,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                )
+
+                # Parse the JSON response
+                result = json.loads(response.choices[0].message.content)
+                print("Debug - Validation result:", result)
+                matched_city = result.get("city")
+
+                if matched_city:
+                    # Store the matched city in conversation data
+                    conversation_data.hub_location = matched_city
+                    conversation_data.prompted_for_hub_location = False
+
+                    # Acknowledge that we got their hub location
+                    await turn_context.send_activity(
+                        f"Thanks! I've set your Innovation Hub location to {matched_city}. How can I help you with agenda creation today?"
+                    )
+                else:
+                    # No match found, ask the user to try again
+                    await turn_context.send_activity(
+                        "I couldn't find that city in our list of Innovation Hub locations. "
+                        "Please provide a valid Innovation Hub location from this list: "
+                        f"{self.config.hub_cities}"
+                    )
+                    # Keep the prompted_for_hub_location flag as True so we stay in this state
+            except Exception as e:
+                self.logger.error(f"Error validating city name: {str(e)}")
+                # print(f"Error validating city name: {str(e)}")
+                await turn_context.send_activity(
+                    "I'm having trouble validating your city. Please provide a valid Innovation Hub location from this list: "
+                    f"{self.config.hub_cities}"
+                )
         else:
             # Add message details to the conversation data.
             # Store the raw datetime for comparison
@@ -104,35 +176,16 @@ class StateManagementBot(ActivityHandler):
                 current_time - last_message_timestamp
             ) > timedelta(minutes=10):
                 self.logger.debug(
-                    "Debug - Timestamp is older than 5 minutes, resetting conversation data."
+                    "Debug - Timestamp is older than 10 minutes, resetting conversation data."
                 )
                 conversation_data.config = None
-            # else:
-            #     print("Debug - Timestamp is within 5 minutes, keeping conversation data.")
 
             conversation_data.channel_id = turn_context.activity.channel_id
             if conversation_data.config is None:
                 # Create a graph
                 l_graph_thread_id = str(uuid.uuid4())
-                
-                # Initialize Azure OpenAI Service client with Entra ID authentication
-                token_provider = get_bearer_token_provider(  
-                    DefaultAzureCredential(),  
-                    "https://cognitiveservices.azure.com/.default"  
-                )  
 
-                client = AzureOpenAI(  
-                    azure_endpoint=self.config.az_openai_endpoint,  
-                    azure_ad_token_provider=token_provider,  
-                    api_version=self.config.az_openai_api_version,  
-                )  
-                # Update the Assistant ID and Thread ID in the graph
-                # client = AzureOpenAI(
-                #     api_key=self.config.az_open_ai_key,
-                #     azure_endpoint=self.config.az_openai_endpoint,
-                #     api_version=self.config.az_openai_api_version,
-                # )
-
+                # Initialize the Assistants API instance with the tools, Document Templates and instructions
                 client.beta.assistants.update(
                     self.config.az_assistant_id,
                     instructions=StateManagementBot.asst_sys_prompt,
@@ -143,25 +196,28 @@ class StateManagementBot(ActivityHandler):
                     temperature=0.3,
                 )
                 self.logger.debug(
-                    "Debug - Assistant updated successfully with the Office Word document template"
+                    "Debug - Document Generator Agent updated successfully with the Office Word document template"
                 )
+                
+                # Create a new thread for the conversation (user session)
                 conversation_data.thread = client.beta.threads.create()
+                
+                # For the user session, this config is to bootstrap the multi-agent system for Agenda creation
                 config = {
                     "configurable": {
-                        # The customer name is used in to
-                        # fetch the customer's service appointment history information
-                        "customer_name": "Ravi Kumar",
+                        "customer_name": user_profile.name,
                         "thread_id": l_graph_thread_id,
                         "asst_thread_id": conversation_data.thread.id,
-                        "hub_location": "Bengaluru",
+                        "hub_location": conversation_data.hub_location,  # Use stored hub location
                     }
                 }
+                # update the conversation state with the new config
                 conversation_data.config = config
 
+            # Now we can use the graph to send messages and get responses
             response = self.stream_graph_updates(
                 turn_context.activity.text, graph_build.graph, conversation_data.config
             )
-            # print("RESPONSE ---------------\n", response)
             return await turn_context.send_activity(response)
 
     async def on_turn(self, turn_context: TurnContext):
@@ -176,9 +232,7 @@ class StateManagementBot(ActivityHandler):
             now_timestamp
         )
         result = utc_datetime + offset
-        
-        
-        
+
         return result.strftime("%I:%M:%S %p, %A, %B %d of %Y")
 
     def stream_graph_updates(self, user_input: str, graph, config) -> str:
@@ -231,6 +285,7 @@ class StateManagementBot(ActivityHandler):
         except Exception as e:
             error_details = traceback.format_exc()
             self.logger.error(
-                f"Debug - Error in stream_graph_updates:\n{error_details}"
+                f"Debug - Error in stream_graph_updates:\n {str(e)}, \n{error_details}"
             )
-            return f"Error in processing the request: {str(e)}\nStack trace: {error_details}"
+            # print("Debug - Error in stream_graph_updates:\n", error_details)
+            return f"Error in processing the request. Contact TAB support."

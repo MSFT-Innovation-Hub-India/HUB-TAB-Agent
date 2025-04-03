@@ -26,31 +26,35 @@ from langgraph.graph import StateGraph
 from pydantic import BaseModel, Field
 from openai import AzureOpenAI
 
-from doc_generator import generate_agenda_document
+from tools.doc_generator import generate_agenda_document
 from tools.agenda_selector import set_prompt_template
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 import datetime
-import traceback
-import uuid
 from IPython.display import display, Image
 
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
 from tools.hub_master import get_hub_masterdata
+from config import DefaultConfig
 
-load_dotenv()
-az_openai_endpoint = os.getenv("az_openai_endpoint")
-az_openai_key = os.getenv("az_open_ai_key")
-az_openai_deployment_name = os.getenv("az_deployment_name")
-az_api_type = os.getenv("API_TYPE")
-az_openai_version = os.getenv("az_openai_api_version")
+l_config = DefaultConfig()
+
+az_openai_endpoint = l_config.az_openai_endpoint
+az_openai_deployment_name = l_config.az_deployment_name
+az_api_type = l_config.az_api_type
+az_openai_version = l_config.az_openai_api_version
+hub_cities = l_config.hub_cities
 
 logger = logging.getLogger(__name__)
 logger.addHandler(
-    AzureLogHandler(connection_string=os.getenv("az_application_insights_key"))
+    AzureLogHandler(connection_string=l_config.az_application_insights_key)
 )
-logger.setLevel(logging.DEBUG)
+log_level_str = l_config.log_level.upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
+logger.setLevel(log_level)
+# logger.debug(f"Logging level set to {log_level_str}")
+# logger.setLevel(logging.DEBUG)
 
 # Initialize Azure OpenAI Service client with Entra ID authentication
 token_provider = get_bearer_token_provider(
@@ -410,7 +414,7 @@ class ToDocumentGenerator(BaseModel):
 
 
 primary_agent_sys_prompt = """
-    You are a helpful AI Assistant for the Technical Architect of Microsoft Innovation Hub Team.
+    You are TAB (Technical Architect Buddy), a helpful AI Assistant for the Technical Architect of Microsoft Innovation Hub Team.
     Your primary role is to help the Technical architect to prepare an Agenda for the Innovation Hub Session for the Customer.
     There are 3 workflow stages to this process:
     1. **Notes_Extraction:** Validate the input provided by the user, including meeting notes and metadata.
