@@ -34,6 +34,9 @@ class DefaultConfig:
     """the container name where the Hub Master Data Word Document for a Hub Location should be available"""
     az_blob_container_name_hubmaster = os.getenv("az_blob_container_name_hubmaster") 
     
+    """the container name where the user conversation state will be stored"""
+    az_blob_container_name_state = os.getenv("az_blob_container_name_state")
+    
     """ Azure Storage configuration required for Management plane operations """
     az_subscription_id = os.getenv("az_subscription_id")
     az_storage_rg_name = os.getenv("az_storage_rg")

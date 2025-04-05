@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from botbuilder.core.teams import TeamsActivityHandler, TeamsInfo
 
 
 class StateManagementBot(ActivityHandler):
@@ -68,6 +69,22 @@ class StateManagementBot(ActivityHandler):
         # self.logger.setLevel(logging.DEBUG)
 
     async def on_message_activity(self, turn_context: TurnContext):
+        
+        try:
+            if turn_context.activity.from_property.id:
+                member = await TeamsInfo.get_member(turn_context, turn_context.activity.from_property.id)
+                sender_name = member.name
+                self.logger.debug(f"Sender name from Teams Info: {sender_name}")
+        except Exception as e:
+            self.logger.error(f"Error getting member name from Teams INfo {str(e)}")
+
+        try:
+            # Log the incoming message
+            self.logger.info(
+                f"Received message from {turn_context.activity.from_property.name}: {turn_context.activity.text}"
+            )
+        except Exception as e:
+            self.logger.error(f"Error logging message: {str(e)}")
         # Get the state properties from the turn context.
         user_profile = await self.user_profile_accessor.get(turn_context, UserProfile)
         conversation_data = await self.conversation_data_accessor.get(

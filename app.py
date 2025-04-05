@@ -22,6 +22,11 @@ from botbuilder.schema import Activity, ActivityTypes
 from config import DefaultConfig
 from botbuilder.core import MemoryStorage
 from bots.state_management_bot import StateManagementBot
+# from botbuilder.azure import BlobStorage
+from util.az_blob_storage import TABBlobStorageSettings, BlobStorage
+# Add these new imports
+from azure.identity import DefaultAzureCredential
+from azure.storage.blob import BlobServiceClient
 
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
@@ -29,18 +34,28 @@ from opencensus.ext.azure.log_exporter import AzureLogHandler
 
 CONFIG = DefaultConfig()
 
+credential = DefaultAzureCredential()
+BlobStorageSettings = TABBlobStorageSettings(
+    container_name=CONFIG.az_blob_container_name_state,
+    account_url=f"https://{CONFIG.az_storage_account_name}.blob.core.windows.net",
+    credential=credential
+)
+
+# Set up blob settings
+BLOB_STORAGE = BlobStorage(BlobStorageSettings)
+
 
 # Create adapter.
 # See https://aka.ms/about-bot-adapter to learn more about how bots work.
 SETTINGS = BotFrameworkAdapterSettings(CONFIG.APP_ID, CONFIG.APP_PASSWORD)
 ADAPTER = BotFrameworkAdapter(SETTINGS)
-MEMORY = MemoryStorage()
+
+# MEMORY = MemoryStorage()
+MEMORY = BLOB_STORAGE
 USER_STATE = UserState(MEMORY)
 CONVERSATION_STATE = ConversationState(MEMORY)
 
 # Create the Bot
-# BOT = MyBot()
-# BOT = StateManagementBot(CONVERSATION_STATE, USER_STATE)
 BOT = StateManagementBot(CONVERSATION_STATE, USER_STATE)
 
 
