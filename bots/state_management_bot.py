@@ -73,6 +73,11 @@ class StateManagementBot(ActivityHandler):
         conversation_data = await self.conversation_data_accessor.get(
             turn_context, ConversationData
         )
+        
+        # validate input and ensure it is a valid string
+        if not isinstance(turn_context.activity.text, str) or not turn_context.activity.text.strip():
+            await turn_context.send_activity("Please provide a valid text input. I do not accept images or other formats yet.")
+            return
 
         # Initialize Azure OpenAI Service client with Entra ID authentication
         token_provider = get_bearer_token_provider(
