@@ -9,6 +9,7 @@ import time
 import traceback
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
+from util.az_blob_account_access import set_blob_account_public_access
 
 l_config = DefaultConfig()
 logger = logging.getLogger(__name__)
@@ -40,79 +41,19 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
     az_storage_rg_name = l_config.az_storage_rg_name
 
     # remove spaces and special characters from the city name
-    cityname = "".join(e for e in cityname if e.isalnum())
-    file_name = f"Hub-{cityname}.md"
+    cityname = ("".join(e for e in cityname if e.isalnum())).lower()
+    
+    file_name = f"hub-{cityname}.md"
     response = None
+    flag = False
 
-    try:
-        # Get the managed identity credential
-        azure_credential = DefaultAzureCredential()
-
-        # Create a BlobServiceClient using the managed identity credential
-        storage_mgmt_client = StorageManagementClient(
-            azure_credential, az_subscription_id
+    flag = set_blob_account_public_access(
+            l_config.az_storage_account_name,
+            l_config.az_subscription_id,
+            l_config.az_storage_rg_name,
         )
-
-        # Check if the storage account allows public access
-        # If not, update the storage account to allow public access
-        properties = storage_mgmt_client.storage_accounts.get_properties(
-            resource_group_name=az_storage_rg_name, account_name=blob_account_name
-        )
-        if properties.public_network_access != "Enabled":
-            logger.debug(
-                "Hub Master Template Retrieval - Public network access is not enabled. Updating storage account..."
-            )
-
-            # Define the update parameters to allow public access
-            update_params = StorageAccountUpdateParameters(
-                network_rule_set={"default_action": "Allow", "bypass": "AzureServices"},
-                public_network_access="Enabled",
-            )
-
-            # Update the storage account to allow public access
-            mgmt_response = storage_mgmt_client.storage_accounts.update(
-                az_storage_rg_name, blob_account_name, update_params
-            )
-
-            # add a while loop to check the value of mgmt_response.allow_blob_public_access
-            # break when the value is True
-            start_time = time.time()
-            flag = True
-            while flag:
-                # GETTING UPDATED PROPERTIES OF STORAGE ACCOUNT
-                logger.debug(
-                    "Hub Master Template Retrieval - Checking the current status of public network access..."
-                )
-                properties_l = storage_mgmt_client.storage_accounts.get_properties(
-                    resource_group_name=az_storage_rg_name,
-                    account_name=blob_account_name,
-                )
-                if properties_l.public_network_access == "Enabled":
-                    logger.debug(
-                        "Hub Master Template Retrieval - Public network access is now updated to allow."
-                    )
-                    flag = False
-                    break
-                else:
-                    time.sleep(5)
-                    # beyond 1 minute, break the loop and return an error message
-                    if time.time() - start_time > 60:
-                        logger.error(
-                            "Hub Master Template Retrieval - Timeout: Unable to set Public network access to allow."
-                        )
-                        response = f"The Word document with the details of the Agenda has been created. However, unable to access the Storage account to upload the document. Please try again later."
-                        return response
-                    logger.debug(
-                        "Hub Master Template Retrieval - Storage Account is still not enabled for public access..."
-                    )
-                    continue
-    except Exception as e:
-        logger.error(
-            f"Hub Master Template Retrieval - Error while checking or updating public network access: {e}"
-        )
-        logger.error(traceback.format_exc())
-        response = f"Due to public network access restrictions on the Storage account, unable to access the Hub Master data document. Please try again later."
-        return response
+    if not flag:
+        raise Exception("Issue accessing Speaker information for your Hub Location. Please try again later or contact the TAB administrator.")
 
     logger.debug(
         "Hub Master Template Retrieval - Proceeding now to read the Hub Master data from blob storage using managed identity..."
@@ -155,7 +96,12 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
                             f"read hub master data from '{file_name}' in blob container '{blob_container_name}' successfully."
                         )
                         break
-            if not success:
+            # if not success:
+            #     response = f"Unable to locate Innovation Hub, Master data document - {file_name} - in the blob storage. Please contact your admin"
+
+            if success:
+                break  # Exit the retry loop if successful
+            else:
                 response = f"Unable to locate Innovation Hub, Master data document - {file_name} - in the blob storage. Please contact your admin"
 
         except Exception as e:

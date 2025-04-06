@@ -19,6 +19,7 @@ from azure.mgmt.storage import StorageManagementClient
 from azure.mgmt.storage.models import StorageAccountUpdateParameters
 import datetime
 from config import DefaultConfig
+from util.az_blob_account_access import set_blob_account_public_access
 
 l_config = DefaultConfig()
 
@@ -207,65 +208,10 @@ def upload_document_to_blob_storage_using_mi(
     """
 
     response = None
-    # Get the managed identity credential
-    azure_credential = DefaultAzureCredential()
-
-    # Create a BlobServiceClient using the managed identity credential
-    storage_mgmt_client = StorageManagementClient(azure_credential, az_subscription_id)
-
-    # Check if the storage account allows public access
-    # If not, update the storage account to allow public access
-    properties = storage_mgmt_client.storage_accounts.get_properties(
-        resource_group_name=az_storage_rg_name, account_name=blob_account_name
-    )
-    if properties.public_network_access != "Enabled":
-        logger.debug(
-            "Word Document Generator Agent: Public network access is not enabled. Updating storage account..."
-        )
-
-        # Define the update parameters to allow public access
-        update_params = StorageAccountUpdateParameters(
-            network_rule_set={"default_action": "Allow", "bypass": "AzureServices"},
-            public_network_access="Enabled",
-        )
-
-        # Update the storage account to allow public access
-        mgmt_response = storage_mgmt_client.storage_accounts.update(
-            az_storage_rg_name, blob_account_name, update_params
-        )
-
-        # add a while loop to check the value of mgmt_response.allow_blob_public_access
-        # break when the value is True
-        start_time = time.time()
-        flag = True
-        while flag:
-            # GETTING UPDATED PROPERTIES OF STORAGE ACCOUNT
-            logger.debug(
-                "Word Document Generator Agent: Checking the current status of public network access..."
-            )
-            properties_l = storage_mgmt_client.storage_accounts.get_properties(
-                resource_group_name=az_storage_rg_name, account_name=blob_account_name
-            )
-            if properties_l.public_network_access == "Enabled":
-                logger.debug(
-                    "Word Document Generator Agent: Public network access is now updated to allow."
-                )
-                flag = False
-                break
-            else:
-                time.sleep(5)
-                # beyond 1 minute, break the loop and return an error message
-                if time.time() - start_time > 60:
-                    logger.error(
-                        "Word Document Generator Agent: Timeout: Unable to set Public network access to allow."
-                    )
-                    response = f"Word Document Generator Agent: The Word document with the details of the Agenda has been created. However, unable to access the Storage account to upload the document. Shall I try once more?"
-                    return response
-                logger.debug(
-                    "Word Document Generator Agent: Azure Storage Account is still not enabled for public access..."
-                )
-                continue
-
+    flag = set_blob_account_public_access(blob_account_name=blob_account_name, az_subscription_id=az_subscription_id, az_storage_rg_name=az_storage_rg_name)
+    if not flag:
+        raise Exception("Issue accessing Storage to upload the document created. Please try again later or contact the TAB administrator.")
+    
     logger.debug(
         "Word Document Generator Agent: Uploading document to blob storage using managed identity..."
     )

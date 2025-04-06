@@ -16,6 +16,7 @@ import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from botbuilder.core.teams import TeamsActivityHandler, TeamsInfo
+from util.az_blob_account_access import set_blob_account_public_access
 
 
 class StateManagementBot(ActivityHandler):
@@ -69,31 +70,38 @@ class StateManagementBot(ActivityHandler):
         # self.logger.setLevel(logging.DEBUG)
 
     async def on_message_activity(self, turn_context: TurnContext):
-        
-        try:
-            if turn_context.activity.from_property.id:
-                member = await TeamsInfo.get_member(turn_context, turn_context.activity.from_property.id)
-                sender_name = member.name
-                self.logger.debug(f"Sender name from Teams Info: {sender_name}")
-        except Exception as e:
-            self.logger.error(f"Error getting member name from Teams INfo {str(e)}")
 
-        try:
-            # Log the incoming message
-            self.logger.info(
-                f"Received message from {turn_context.activity.from_property.name}: {turn_context.activity.text}"
+        # First ensure public network access is enabled for the blob account before processing each request
+        # Due to Secure Futures Initiative at Microsoft, the public network access is set to disabled for the blob account, daily.
+        # All the Bot state is presently stored in the blob account, and the bot needs to access the blob account to store and retrieve the state data.
+        flag = set_blob_account_public_access(
+            self.config.az_storage_account_name,
+            self.config.az_subscription_id,
+            self.config.az_storage_rg_name,
+        )
+        if not flag:
+            self.logger.debug(
+                "Public network access is not enabled. Please contact your administrator."
             )
-        except Exception as e:
-            self.logger.error(f"Error logging message: {str(e)}")
+            await turn_context.send_activity(
+                "Public network access is not enabled to the Storage Account. Please contact your administrator."
+            )
+            return
+
         # Get the state properties from the turn context.
         user_profile = await self.user_profile_accessor.get(turn_context, UserProfile)
         conversation_data = await self.conversation_data_accessor.get(
             turn_context, ConversationData
         )
-        
+
         # validate input and ensure it is a valid string
-        if not isinstance(turn_context.activity.text, str) or not turn_context.activity.text.strip():
-            await turn_context.send_activity("Please provide a valid text input. I do not accept images or other formats yet.")
+        if (
+            not isinstance(turn_context.activity.text, str)
+            or not turn_context.activity.text.strip()
+        ):
+            await turn_context.send_activity(
+                "Please provide a valid text input. I do not accept images or other formats yet."
+            )
             return
 
         # Initialize Azure OpenAI Service client with Entra ID authentication
@@ -106,16 +114,49 @@ class StateManagementBot(ActivityHandler):
             azure_ad_token_provider=token_provider,
             api_version=self.config.az_openai_api_version,
         )
+        sender_name = None
 
+        if conversation_data.config is None:
+            # Initialize the conversation data with default values
+            conversation_data.config = {
+                "configurable": {
+                    "customer_name": None,
+                    "thread_id": None,
+                    "asst_thread_id": None,
+                    "hub_location": None,
+                }
+            }
         if user_profile.name is None:
+            # If the Microsoft Teams context is available, get the sender name from the Teams context
+            try:
+                if turn_context.activity.from_property.id:
+                    member = await TeamsInfo.get_member(
+                        turn_context, turn_context.activity.from_property.id
+                    )
+                    sender_name = member.name
+                    if sender_name:
+                        self.logger.debug(
+                            f"{sender_name} has commenced a session with TAB from Microsoft Teams"
+                        )
+                        conversation_data.prompted_for_user_name = True
+            except Exception as e:
+                # self.logger.error(f"Error getting member name from Teams INfo {str(e)}")
+                pass
             # First time around this is undefined, so we will prompt user for name.
             if conversation_data.prompted_for_user_name:
                 # Set the name to what the user provided.
-                user_profile.name = turn_context.activity.text
+                if sender_name:
+                    # If we have a sender name from Teams, use it
+                    user_profile.name = sender_name
+                else:
+                    user_profile.name = turn_context.activity.text
+
+                # Now you can safely access and update values
+                conversation_data.config["configurable"]["customer_name"] = sender_name
 
                 # Acknowledge that we got their name.
                 await turn_context.send_activity(
-                    f"Thanks { user_profile.name }. Now I need to know which Innovation Hub location (city) you're working with."
+                    f"Hello { user_profile.name }! Can you help with which Innovation Hub location (city) you're working with?"
                 )
 
                 # Reset the flag to allow the bot to go though the cycle again.
@@ -123,14 +164,22 @@ class StateManagementBot(ActivityHandler):
                 # Set flag to prompt for hub location
                 conversation_data.prompted_for_hub_location = True
             else:
-                # Prompt the user for their name.
+                # Set the flag to true, so we don't prompt in the next turn.
+                conversation_data.prompted_for_user_name = True
+                # Prompt the user for their name. TAB is not able to get the name from Teams context.
                 await turn_context.send_activity(
                     "I am TAB, your Technical Architect Buddy representing Microsoft innovation Hub. I can help you process Briefing call notes to produce Agenda documents. "
                     + "Can you help me with your name?"
                 )
-
-                # Set the flag to true, so we don't prompt in the next turn.
-                conversation_data.prompted_for_user_name = True
+        elif (
+            conversation_data.config["configurable"]["hub_location"] is None
+            and not conversation_data.prompted_for_hub_location
+        ):
+            # Ask for the Innovation HUb location city.
+            conversation_data.prompted_for_hub_location = True
+            await turn_context.send_activity(
+                f"Hello { user_profile.name }! Can you help with which Innovation Hub location (city) you're working with?"
+            )
         elif conversation_data.prompted_for_hub_location:
             # Get hub location from user input
             user_input = turn_context.activity.text
@@ -164,6 +213,10 @@ class StateManagementBot(ActivityHandler):
                 if matched_city:
                     # Store the matched city in conversation data
                     conversation_data.hub_location = matched_city
+                    # Now you can safely access and update values
+                    conversation_data.config["configurable"][
+                        "hub_location"
+                    ] = matched_city
                     conversation_data.prompted_for_hub_location = False
 
                     # Acknowledge that we got their hub location
@@ -200,10 +253,12 @@ class StateManagementBot(ActivityHandler):
                 self.logger.debug(
                     "Debug - Timestamp is older than 10 minutes, resetting conversation data."
                 )
-                conversation_data.config = None
+                # conversation_data.config = None
+                conversation_data.config["configurable"]["thread_id"] = None
+                conversation_data.config["configurable"]["asst_thread_id"] = None
 
             conversation_data.channel_id = turn_context.activity.channel_id
-            if conversation_data.config is None:
+            if conversation_data.config["configurable"]["thread_id"] is None:
                 # Create a graph
                 l_graph_thread_id = str(uuid.uuid4())
 
@@ -220,21 +275,27 @@ class StateManagementBot(ActivityHandler):
                 self.logger.debug(
                     "Debug - Document Generator Agent updated successfully with the Office Word document template"
                 )
-                
+
                 # Create a new thread for the conversation (user session)
                 conversation_data.thread = client.beta.threads.create()
-                
+
                 # For the user session, this config is to bootstrap the multi-agent system for Agenda creation
-                config = {
-                    "configurable": {
-                        "customer_name": user_profile.name,
-                        "thread_id": l_graph_thread_id,
-                        "asst_thread_id": conversation_data.thread.id,
-                        "hub_location": conversation_data.hub_location,  # Use stored hub location
-                    }
-                }
-                # update the conversation state with the new config
-                conversation_data.config = config
+                conversation_data.config["configurable"][
+                    "asst_thread_id"
+                ] = conversation_data.thread.id
+                conversation_data.config["configurable"][
+                    "thread_id"
+                ] = l_graph_thread_id
+                # config = {
+                #     "configurable": {
+                #         "customer_name": user_profile.name,
+                #         "thread_id": l_graph_thread_id,
+                #         "asst_thread_id": conversation_data.thread.id,
+                #         "hub_location": conversation_data.hub_location,  # Use stored hub location
+                #     }
+                # }
+                # # update the conversation state with the new config
+                # conversation_data.config = config
 
             # Now we can use the graph to send messages and get responses
             response = self.stream_graph_updates(

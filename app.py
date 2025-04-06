@@ -109,7 +109,7 @@ async def messages(req: Request) -> Response:
 
     response = await ADAPTER.process_activity(activity, auth_header, BOT.on_turn)
 
-    logger.warning('processed user message!!!!!!!')
+    logger.debug('user input processed successfully')
     # print('response is ', response)
     # print('received a user message')
     if response:
