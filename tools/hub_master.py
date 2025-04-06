@@ -96,13 +96,8 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
                             f"read hub master data from '{file_name}' in blob container '{blob_container_name}' successfully."
                         )
                         break
-            # if not success:
-            #     response = f"Unable to locate Innovation Hub, Master data document - {file_name} - in the blob storage. Please contact your admin"
-
-            if success:
-                break  # Exit the retry loop if successful
-            else:
-                response = f"Unable to locate Innovation Hub, Master data document - {file_name} - in the blob storage. Please contact your admin"
+            # if success:
+            break  # Exit the retry loop if successful
 
         except Exception as e:
             logger.warning(
@@ -116,5 +111,9 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
                 logger.error(
                     f"All {max_retries} hub master data document read attempts failed"
                 )
-                response = f"There was an error while reading the Hub Master data document from the blob storage. Shall I try once more?"
+    if not success:
+        logger.error(
+            f"Unable to read the Hub Master data document from the blob storage ; file name: {file_name}"
+        )
+        raise Exception("Issue accessing Master data for the current Hub Location. Please contact the TAB administrator.")
     return response

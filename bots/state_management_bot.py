@@ -286,16 +286,6 @@ class StateManagementBot(ActivityHandler):
                 conversation_data.config["configurable"][
                     "thread_id"
                 ] = l_graph_thread_id
-                # config = {
-                #     "configurable": {
-                #         "customer_name": user_profile.name,
-                #         "thread_id": l_graph_thread_id,
-                #         "asst_thread_id": conversation_data.thread.id,
-                #         "hub_location": conversation_data.hub_location,  # Use stored hub location
-                #     }
-                # }
-                # # update the conversation state with the new config
-                # conversation_data.config = config
 
             # Now we can use the graph to send messages and get responses
             response = self.stream_graph_updates(

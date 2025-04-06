@@ -85,8 +85,9 @@ def set_blob_account_public_access(
                     logger.debug(
                         "Public network access to the Storage Account is now updated to allow."
                     )
-                    flag = False
+                    time.sleep(10) # this is to let the access take effect
                     access_set = True
+                    flag = False
                     break
                 else:
                     time.sleep(5)
