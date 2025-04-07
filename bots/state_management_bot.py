@@ -286,7 +286,8 @@ class StateManagementBot(ActivityHandler):
                 conversation_data.config["configurable"][
                     "thread_id"
                 ] = l_graph_thread_id
-
+                conversation_data.config["configurable"]["customer_name"] = user_profile.name
+                print("user name:", conversation_data.config["configurable"]["customer_name"])
             # Now we can use the graph to send messages and get responses
             response = self.stream_graph_updates(
                 turn_context.activity.text, graph_build.graph, conversation_data.config

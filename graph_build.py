@@ -90,9 +90,17 @@ class State(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     engagement_type: str
     prompt_template: str
+    user_name: Optional[str]
     hub_master_info: str
     dialog_state: Annotated[
-        list[Literal["primary_assistant", "notes_extraction", "agenda_creation", "document_generation"]],
+        list[
+            Literal[
+                "primary_assistant",
+                "notes_extraction",
+                "agenda_creation",
+                "document_generation",
+            ]
+        ],
         update_dialog_stack,
     ]
 
@@ -150,7 +158,7 @@ notes_extractor_sys_prompt = """
   - Your primary responsibility is to extract, validate, and confirm essential metadata and customer goals from meeting notes.
   - You must proceed **step-by-step**, confirming one metadata item at a time before moving to the next.
   - Always use **chain-of-thought reasoning** while inferring values.
-  - Present the final structured response **only after confirming both metadata and agenda goals** with the user.
+  - Present the final structured response **only after confirming both metadata and agenda goals** with the user. {user_name} will be the user.
   - Refer to the content below to evaluate the rules and criteria specificed \n ----- hub master info ------\n {hub_master_info}\n ----- end of hub master info ------\n
 
 - **Briefing Notes Handling:**
@@ -291,12 +299,16 @@ notes_extractor_sys_prompt = """
 """
 
 
-notes_Extractor_Agent_prompt = ChatPromptTemplate(
-    [
-        ("system", notes_extractor_sys_prompt + "\nCurrent time: {time}."),
-        ("placeholder", "{messages}"),
-    ]
-).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+notes_Extractor_Agent_prompt = (
+    ChatPromptTemplate(
+        [
+            ("system", notes_extractor_sys_prompt + "\nCurrent time: {time}."),
+            ("placeholder", "{messages}"),
+        ]
+    )
+    .partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    .partial(user_name=State["user_name"])
+)
 
 notes_extractor_runnable = notes_Extractor_Agent_prompt | llm.bind_tools(
     [CompleteOrEscalate]
@@ -334,19 +346,23 @@ agenda_creator_sys_prompt = """
     - Use the Agenda Template format and instructions below and populate the topics.\n ----- start of agenda template ------\n {prompt_template} \n  ----- end of agenda template ------\n
     - To identify the speakers for the topics, refer to the #SpeakerMappingTable in the hub master info above.
     - You will receive the input for agenda topics creation inside the section labeled **### Engagement Goals Confirmation Message ###**.
-    - When missing information is identified, ask the user for the missing details.
+    - When missing information is identified, ask the user for the missing details.  {user_name} will be the user you are interacting with. Address the user when interacting with, but do not overdo it.
     - **Create a final Agenda** in the Markdown table format following the sample provided.
     - Add the created agenda information under the **### Innovation Hub Engagement Agenda ###** section of the message.
     - Present it to the user and ask for confirmation before finalizing your work.
     - If the user needs help, and none of your tools are appropriate for it, then 'CompleteOrEscalate' the dialog to the host assistant. Do not waste the user\'s time. Do not make up invalid tools or functions.
 """
 
-agenda_Creator_Agent_prompt = ChatPromptTemplate(
-    [
-        ("system", agenda_creator_sys_prompt),
-        ("placeholder", "{messages}"),
-    ]
-).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+agenda_Creator_Agent_prompt = (
+    ChatPromptTemplate(
+        [
+            ("system", agenda_creator_sys_prompt),
+            ("placeholder", "{messages}"),
+        ]
+    )
+    .partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    .partial(user_name=State["user_name"])
+)
 
 agenda_creator_runnable = agenda_Creator_Agent_prompt | llm.bind_tools(
     [CompleteOrEscalate]
@@ -378,16 +394,20 @@ document_generator_sys_prompt = """
 - **You are the DocumentGeneratorAgent.**
 - Your primary responsibility is to generate a Microsoft Office Word document (.docx) based on the agenda topics provided as input to you.
 - Use the tools provided to you to generate the Word document.
-- If the user needs help, and none of your tools are appropriate for it, then 'CompleteOrEscalate' the dialog to the host assistant. Do not waste the user\'s time. Do not make up invalid tools or functions.
+- If the user needs help, and none of your tools are appropriate for it, then 'CompleteOrEscalate' the dialog to the host assistant.  {user_name} will be the user you are interacting with. Address the user when interacting with, but do not overdo it. Do not waste the user\'s time. Do not make up invalid tools or functions.
 
 """
 
-document_generation_prompt = ChatPromptTemplate(
-    [
-        ("system", document_generator_sys_prompt),
-        ("placeholder", "{messages}"),
-    ]
-).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+document_generation_prompt = (
+    ChatPromptTemplate(
+        [
+            ("system", document_generator_sys_prompt),
+            ("placeholder", "{messages}"),
+        ]
+    )
+    .partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    .partial(user_name=State["user_name"])
+)
 
 document_generation_tools = [generate_agenda_document]
 
@@ -420,7 +440,7 @@ primary_agent_sys_prompt = """
     1. **Notes_Extraction:** Validate the input provided by the user, including meeting notes and metadata.
     - You will receive the input for agenda creation in the section labeled **### Internal Briefing Notes ###** or **### External Briefing Notes ###**.
     - Check if there is content under `### External Briefing Notes ###`. If not, check for `### Internal Briefing Notes ###`.
-    -   If neither is provided, ask the user for them.
+    -   If neither is provided, ask the user for them. {user_name} will be the user you are interacting with. Address the user when interacting with, but do not overdo it.
     - You will assign this task to the Notes Extractor Agent, which will extract the metadata and agenda goals from the meeting notes.
     - This stage completes when the Notes Extraction Agent has returned the extracted content under **### Engagement Goals Confirmation Message ###** section of the message.
     2.**Agenda_Creation:** Use the metadata and engagement goals provided by the Notes Extraction Agent to create an agenda for the Innovation Hub session.
@@ -431,12 +451,16 @@ primary_agent_sys_prompt = """
 # -------------------------------
 # Planner (Primary Assistant) Prompt
 # -------------------------------
-primary_agent_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", primary_agent_sys_prompt),
-        ("placeholder", "{messages}"),
-    ]
-).partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+primary_agent_prompt = (
+    ChatPromptTemplate.from_messages(
+        [
+            ("system", primary_agent_sys_prompt),
+            ("placeholder", "{messages}"),
+        ]
+    )
+    .partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    .partial(user_name=State["user_name"])
+)
 
 primary_agent_runnable = primary_agent_prompt | llm.bind_tools(
     [ToNotesExtractor, ToAgendaCreator, ToDocumentGenerator]
@@ -511,12 +535,25 @@ def hub_master_info(state: State):
     else:
         return {"hub_master_info": get_hub_masterdata.invoke({})}
 
-def user_info(state: State):
-    return {"user_info": "User info"}
+
+def extract_user_name(state: State, config: RunnableConfig) -> dict:
+    """Extract user name from config and add it to state"""
+    print("Extracting user name from config and setting to the Session cache")
+    if (
+        config
+        and "configurable" in config
+        and "customer_name" in config["configurable"]
+    ):
+        user_name = config["configurable"]["customer_name"]
+    print(f"User name extracted: {user_name}")
+    return {"user_name": user_name}
 
 
+builder.add_node("extract_user_name", extract_user_name)
+builder.add_edge(START, "extract_user_name")
+builder.add_edge("extract_user_name", "fetch_hub_info")
 builder.add_node("fetch_hub_info", hub_master_info)
-builder.add_edge(START, "fetch_hub_info")
+# builder.add_edge(START, "fetch_hub_info")
 
 
 def prompt_template(state: State) -> dict:
