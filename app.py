@@ -1,0 +1,148 @@
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+
+import sys
+import traceback
+from datetime import datetime
+
+from aiohttp import web
+from aiohttp.web import Request, Response, json_response
+from botbuilder.core import (
+    BotFrameworkAdapterSettings,
+    TurnContext,
+    BotFrameworkAdapter,
+    ConversationState,
+    MemoryStorage,
+    UserState,
+)
+from botbuilder.core.integration import aiohttp_error_middleware
+from botbuilder.schema import Activity, ActivityTypes
+
+# from rpay_chat_bot.bots.bot import MyBot
+
+from botbuilder.core import MemoryStorage
+
+
+# from botbuilder.azure import BlobStorage
+from util.az_blob_storage import TABBlobStorageSettings, BlobStorage
+
+# Add these new imports
+from azure.identity import DefaultAzureCredential
+from azure.storage.blob import BlobServiceClient
+from util.akv_client import get_secret_from_key_vault
+
+import logging
+
+from opencensus.ext.azure.log_exporter import AzureLogHandler
+
+import os
+from dotenv import load_dotenv
+import config
+
+load_dotenv()
+
+az_storage_account_name = os.getenv("az_blob_storage_account_name")
+az_storage_container_state = os.getenv("az_blob_container_name_state")
+
+config.APP_PASSWORD =  get_secret_from_key_vault("ta-buddy-app-registration-secret")
+config.az_application_insights_key = get_secret_from_key_vault(
+    "ta-buddy-app-insights-key"
+)
+config.az_subscription_id = get_secret_from_key_vault("az-subscription-id")
+PORT = 3978
+
+
+credential = DefaultAzureCredential()
+BlobStorageSettings = TABBlobStorageSettings(
+    container_name=az_storage_container_state,
+    account_url=f"https://{az_storage_account_name}.blob.core.windows.net",
+    credential=credential,
+)
+
+# Set up blob settings
+BLOB_STORAGE = BlobStorage(BlobStorageSettings)
+
+print("App ID:", config.APP_ID)
+# print("App Password:", len(config.APP_PASSWORD))  # Mask password for security
+# Create adapter.
+# See https://aka.ms/about-bot-adapter to learn more about how bots work.
+SETTINGS = BotFrameworkAdapterSettings(config.APP_ID, config.APP_PASSWORD)
+ADAPTER = BotFrameworkAdapter(SETTINGS)
+
+# MEMORY = MemoryStorage()
+MEMORY = BLOB_STORAGE
+USER_STATE = UserState(MEMORY)
+CONVERSATION_STATE = ConversationState(MEMORY)
+
+from bots.state_management_bot import StateManagementBot
+
+# Create the Bot
+BOT = StateManagementBot(CONVERSATION_STATE, USER_STATE)
+
+
+logger = logging.getLogger(__name__)
+logger.addHandler(AzureLogHandler(connection_string=config.az_application_insights_key))
+logger.setLevel(logging.INFO)
+
+
+# Catch-all for errors.
+async def on_error(context: TurnContext, error: Exception):
+    # This check writes out errors to console log .vs. app insights.
+    # NOTE: In production environment, you should consider logging this to Azure
+    #       application insights.
+    print(f"\n [on_turn_error] unhandled error: {error}", file=sys.stderr)
+    traceback.print_exc()
+
+    logger.error(error, exc_info=True)
+    # Send a message to the user
+    await context.send_activity("The bot encountered an error or bug.")
+    await context.send_activity(
+        "To continue to run this bot, please fix the bot source code."
+    )
+    # Send a trace activity if we're talking to the Bot Framework Emulator
+    if context.activity.channel_id == "emulator":
+        # Create a trace activity that contains the error object
+        trace_activity = Activity(
+            label="TurnError",
+            name="on_turn_error Trace",
+            timestamp=datetime.utcnow(),
+            type=ActivityTypes.trace,
+            value=f"{error}",
+            value_type="https://www.botframework.com/schemas/error",
+        )
+        # Send a trace activity, which will be displayed in Bot Framework Emulator
+        await context.send_activity(trace_activity)
+
+
+ADAPTER.on_turn_error = on_error
+
+
+# Listen for incoming requests on /api/messages
+async def messages(req: Request) -> Response:
+    # Main bot message handler.
+    if "application/json" in req.headers["Content-Type"]:
+        body = await req.json()
+    else:
+        return Response(status=415)
+
+    activity = Activity().deserialize(body)
+    auth_header = req.headers["Authorization"] if "Authorization" in req.headers else ""
+
+    response = await ADAPTER.process_activity(activity, auth_header, BOT.on_turn)
+
+    logger.debug("user input processed successfully")
+    if response:
+        print("**response:**", response.body)
+        logger.warning("processed user messages \t", response.body)
+        return json_response(data=response.body, status=response.status)
+    return Response(status=201)
+
+
+APP = web.Application(middlewares=[aiohttp_error_middleware])
+APP.router.add_post("/api/messages", messages)
+
+if __name__ == "__main__":
+    try:
+        web.run_app(APP, host="localhost", port=PORT)
+    except Exception as error:
+        raise error
