@@ -446,6 +446,10 @@ primary_agent_sys_prompt = """
     - You will receive the metadata and engagement goals in the section labeled **### Engagement Goals Confirmation Message ###**.
     - You will assign this task to the Agenda Creator Agent, which will generate a detailed agenda for the Innovation Hub Engagement, in Markdown table format
     - This stage completes when the Agenda Creator Agent has returned the detailed agenda under **### Innovation Hub Engagement Agenda ###** section of the message.
+    3.**Document_Generation:** Use the agenda created by the Agenda Creator Agent to generate a Microsoft Office Word document (.docx) for the agenda items.
+    - You will receive the agenda in the section labeled **### Innovation Hub Engagement Agenda ###**.
+    - You will assign this task to the Document Generator Agent, which will generate the Word document for the agenda items.
+    - This stage completes when the Document Generator Agent has returned the Word document for the agenda items.
 """
 # -------------------------------
 # Planner (Primary Assistant) Prompt
@@ -477,7 +481,7 @@ def create_entry_node(assistant_name: str, new_dialog_state: str) -> Callable:
                 ToolMessage(
                     content=f"The assistant is now the {assistant_name}. Reflect on the above conversation between the host assistant and the user."
                     f" The user's intent is unsatisfied. Use the provided tools to assist the user. Remember, you are {assistant_name},"
-                    " and the booking, update, other other action is not complete until after you have successfully invoked the appropriate tool."
+                    " and the notes extraction, agenda creation or document generation other other action is not complete until after you have successfully invoked the appropriate tool."
                     " If the user changes their mind or needs help for other tasks, call the CompleteOrEscalate function to let the primary host assistant take control."
                     " Do not mention who you are - just act as the proxy for the assistant.",
                     tool_call_id=tool_call_id,
@@ -507,22 +511,6 @@ def create_tool_node_with_fallback(tools: list) -> dict:
     return ToolNode(tools).with_fallbacks(
         [RunnableLambda(handle_tool_error)], exception_key="error"
     )
-
-
-def _print_event(event: dict, _printed: set, max_length=1500):
-    current_state = event.get("dialog_state")
-    if current_state:
-        print("Currently in: ", current_state[-1])
-    message = event.get("messages")
-    if message:
-        if isinstance(message, list):
-            message = message[-1]
-        if message.id not in _printed:
-            msg_repr = message.pretty_repr(html=True)
-            if len(msg_repr) > max_length:
-                msg_repr = msg_repr[:max_length] + " ... (truncated)"
-            print(msg_repr)
-            _printed.add(message.id)
 
 
 builder = StateGraph(State)
@@ -664,9 +652,11 @@ def route_agenda_creation(state: State):
         return END
     tool_calls = state["messages"][-1].tool_calls
     did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
+    print("in route agenda creation ---- current status is ...", did_cancel)
     if did_cancel:
+        print("leaving the agenda creation skill")
         return "leave_skill"
-
+    print("did not get an indication that the agenda creation skill is done, returning NONE")
     # safe_toolnames = [
     #     t.name if hasattr(t, "name") else t.__name__ for t in notes_extraction_tools
     # ]
@@ -767,6 +757,7 @@ def route_primary_assistant(state: State):
             logger.debug("**** routing to enter_document_generation")
             return "enter_document_generation"
     # If no tool calls are present, route to extract engagement type (if not already set)
+    print("primary assistant could not find any tool calls, returning None")
     return None
 
 
