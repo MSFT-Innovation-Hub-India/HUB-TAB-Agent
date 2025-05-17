@@ -294,7 +294,7 @@ notes_extractor_sys_prompt = """
   - ❌ Do not move to agenda goals until metadata is confirmed.
   - ❌ Do not create meeting agendas or schedules.
   - ❌ Do not restate briefing notes unnecessarily.
-  - If the user needs help, and none of your tools are appropriate for it, then 'CompleteOrEscalate' the dialog to the host assistant. Do not waste the user\'s time. Do not make up invalid tools or functions.
+  - Do not waste the user\'s time. Do not make up invalid tools or functions.
 """
 
 
@@ -349,7 +349,15 @@ agenda_creator_sys_prompt = """
     - **Create a final Agenda** in the Markdown table format following the sample provided.
     - Add the created agenda information under the **### Innovation Hub Engagement Agenda ###** section of the message.
     - Present it to the user and ask for confirmation before finalizing your work.
-    - If the user needs help, and none of your tools are appropriate for it, then 'CompleteOrEscalate' the dialog to the host assistant. Do not waste the user\'s time. Do not make up invalid tools or functions.
+    - Do not waste the user\'s time. Do not make up invalid tools or functions.
+    - If the user needs help, and none of your tools are appropriate for it, then 'CompleteOrEscalate' the dialog to the primary_assistant.
+
+    Some examples for which you should CompleteOrEscalate:
+    - 'nevermind i think I don't need the agenda now'
+    - 'I confirm. proceed to word document generation now based on the agenda details above'
+    - 'thanks, this agenda looks good'
+    - 'I want to create an agenda for customer X. Here are notes from the briefing call'
+    - 'hey sorry! can you change the engagement type to ADS?'
 """
 
 agenda_Creator_Agent_prompt = (
@@ -393,8 +401,15 @@ document_generator_sys_prompt = """
 - **You are the DocumentGeneratorAgent.**
 - Your primary responsibility is to generate a Microsoft Office Word document (.docx) based on the agenda topics provided as input to you.
 - Use the tools provided to you to generate the Word document.
-- If the user needs help, and none of your tools are appropriate for it, then 'CompleteOrEscalate' the dialog to the host assistant.  {user_name} will be the user you are interacting with. Address the user when interacting with, but do not overdo it. Do not waste the user\'s time. Do not make up invalid tools or functions.
+- {user_name} will be the user you are interacting with. Address the user when interacting with, but do not overdo it.
+- Do not waste the user's time. Do not make up invalid tools or functions.
+- If the user needs help, and none of your tools are appropriate for it, then 'CompleteOrEscalate' the dialog to the primary_assistant.
 
+Some examples for which you should CompleteOrEscalate:
+- 'nevermind i think I don't need the agenda now'
+- 'thanks, this agenda looks good'
+- 'I want to create an agenda for customer X. Here are notes from the briefing call'
+- 'hey sorry! can you change the engagement type to ADS?'
 """
 
 document_generation_prompt = (
@@ -474,6 +489,7 @@ primary_agent_runnable = primary_agent_prompt | llm.bind_tools(
 # Graph Nodes and Edges
 # -------------------------------
 def create_entry_node(assistant_name: str, new_dialog_state: str) -> Callable:
+    print("creating entry node for assistant", assistant_name)
     def entry_node(state: State) -> dict:
         tool_call_id = state["messages"][-1].tool_calls[0]["id"]
         return {
@@ -482,7 +498,7 @@ def create_entry_node(assistant_name: str, new_dialog_state: str) -> Callable:
                     content=f"The assistant is now the {assistant_name}. Reflect on the above conversation between the host assistant and the user."
                     f" The user's intent is unsatisfied. Use the provided tools to assist the user. Remember, you are {assistant_name},"
                     " and the notes extraction, agenda creation or document generation other other action is not complete until after you have successfully invoked the appropriate tool."
-                    " If the user changes their mind or needs help for other tasks, call the CompleteOrEscalate function to let the primary host assistant take control."
+                    " If the user changes their mind or needs help for other tasks, call the CompleteOrEscalate function to let the primary_assistant take control."
                     " Do not mention who you are - just act as the proxy for the assistant.",
                     tool_call_id=tool_call_id,
                 )
@@ -520,6 +536,7 @@ def hub_master_info(state: State):
     if state.get("hub_master_info"):
         return {"hub_master_info": state.get("hub_master_info")}
     else:
+        print("Fetching hub master info, and settung it to the state")
         return {"hub_master_info": get_hub_masterdata.invoke({})}
 
 
@@ -609,17 +626,20 @@ builder.add_edge("set_prompt_template", "leave_skill")
 
 
 def route_notes_extraction(state: State):
+    print("in route_notes_extraction")
     route = tools_condition(state)
+    print("in route notes extraction condition; the route now is ...", route)
     if route == END:
         return END
     tool_calls = state["messages"][-1].tool_calls
     did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
+    print("in route notes extraction ---- current status is ...", did_cancel)
     if did_cancel:
-        if "prompt_template" in state and state["prompt_template"]:
-            logger.debug("the prompt template is set, hence leaving the skill")
-            return "leave_skill"
-        else:
-            return "set_prompt_template"
+        print("*** leaving the notes extraction skill ***, calling set prompt template")
+        # return "leave_skill"
+        return "set_prompt_template"
+    # else:
+    #     return "set_prompt_template"
     # safe_toolnames = [
     #     t.name if hasattr(t, "name") else t.__name__ for t in notes_extraction_tools
     # ]
@@ -647,14 +667,18 @@ builder.add_edge("enter_agenda_creation", "agenda_creation")
 
 
 def route_agenda_creation(state: State):
+    print("in route_agenda_creation")
     route = tools_condition(state)
+    print("in route agenda condition; the route now is ...", route)
     if route == END:
+        print("ending the agenda creation skill")
         return END
     tool_calls = state["messages"][-1].tool_calls
+    print("the number of tool calls is ...", len(tool_calls))
     did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
     print("in route agenda creation ---- current status is ...", did_cancel)
     if did_cancel:
-        print("leaving the agenda creation skill")
+        print("*** leaving the agenda creation skill ***")
         return "leave_skill"
     print("did not get an indication that the agenda creation skill is done, returning NONE")
     # safe_toolnames = [
@@ -687,17 +711,22 @@ builder.add_node(
 
 
 def route_document_generation(state: State):
+    print("in route_document_generation")
     route = tools_condition(state)
+    print("the status in route document generation is ...", route)
     if route == END:
+        print("ending the document generation process")
         return END
     tool_calls = state["messages"][-1].tool_calls
     did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
     if did_cancel:
+        print("*** leaving the document generation skill ***")
         return "leave_skill"
     safe_toolnames = [
         t.name if hasattr(t, "name") else t.__name__ for t in document_generation_tools
     ]
     if all(tc["name"] in safe_toolnames for tc in tool_calls):
+        print("the document generation tools are all present, returning document_generation_tools")
         return "document_generation_tools"
     return None
 
@@ -722,6 +751,7 @@ def pop_dialog_state(state: State) -> dict:
     """
     messages = []
     if state["messages"][-1].tool_calls:
+        print("popping the dialog state, back to the primary assistant")
         # Note: Doesn't currently handle the edge case where the llm performs parallel tool calls
         messages.append(
             ToolMessage(

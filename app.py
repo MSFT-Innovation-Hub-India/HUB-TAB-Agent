@@ -62,7 +62,9 @@ BlobStorageSettings = TABBlobStorageSettings(
 # Set up blob settings
 BLOB_STORAGE = BlobStorage(BlobStorageSettings)
 
+print("Initializing TAB Agent ..")
 print("App ID:", config.APP_ID)
+
 # print("App Password:", len(config.APP_PASSWORD))  # Mask password for security
 # Create adapter.
 # See https://aka.ms/about-bot-adapter to learn more about how bots work.

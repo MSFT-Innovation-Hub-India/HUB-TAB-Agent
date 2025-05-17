@@ -12,12 +12,21 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt /app/
 
-# Install dependencies
+# Copy .env file for environment variables
+COPY .env /app/.env
+
+# Install dependencies in a completely fresh environment
+RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir gunicorn
 
-# Copy project files
+# Copy project files (excluding files specified in .dockerignore)
+# NOTE: .dockerignore should exclude all virtual environment folders
 COPY . /app/
+
+# Verify no virtual environments were copied over
+RUN if [ -d ".venv" ]; then echo "Error: .venv directory exists" && exit 1; fi
+RUN if [ -d "venv" ]; then echo "Error: venv directory exists" && exit 1; fi
 
 # Make port available to the world outside this container
 EXPOSE 8000
