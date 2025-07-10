@@ -1,6 +1,6 @@
-cat > readme.md << 'EOF'
-# Technical Architect Buddy (TAB) for Innovation Hub
 
+# Technical Architect Buddy (TAB) for Innovation Hub
+[Note: This version of the TAB Agent is deprecated. Refer to the Repo [here](https://github.com/MSFT-Innovation-Hub-India/HUB-TA-Agent-v2) for the latest]
 ## Overview
 TAB is an AI-powered assistant designed to help Technical Architects at Microsoft Innovation Hub prepare for customer engagements. It automates the process of extracting key information from meeting notes, creating structured agendas, and generating professional Microsoft Word documents for Innovation Hub sessions.
 
